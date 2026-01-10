@@ -1,3 +1,5 @@
+use std::fs;
+
 #[derive(Debug)] // Auto-generates code to print the struct
 pub struct Matrix {
     pub rows: usize, // TODO: might need to use u32 for memory optimization for millions of small matrices
@@ -192,6 +194,23 @@ impl Matrix {
                 out.data[i] = p.data[i] * -q.data[i].ln();
             }
         }
+    }
+
+    pub fn load(rows: usize, cols: usize, filename: &str) -> Self {
+        // expect unwraps a Result or Option
+        let bytes = fs::read(filename).expect("failed to read file: {filename");
+
+        assert!(bytes.len() == rows * cols * 4,
+          "file size mismatch: expected {} bytes, got {}",
+          rows * cols * 4, bytes.len());
+
+        let data: Vec<f32> = bytes
+            .chunks_exact(4)
+            .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+            .collect();
+
+
+        Self { rows, cols, data}
     }
 }
 
