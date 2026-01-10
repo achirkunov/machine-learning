@@ -172,6 +172,27 @@ impl Matrix {
         }
         Matrix::scale(out, 1.0 / sum);
     }
+
+    fn cross_entropy(p: &Matrix, q: &Matrix, out: &mut Matrix) {
+        assert!(p.rows == q.rows && p.cols == q.cols,
+            "p and q dimensions must match: p is {}x{}, q is {}x{}",
+            p.rows, p.cols, q.rows, q.cols);
+        assert!(p.rows == out.rows && p.cols == out.cols,
+            "p and out dimensions must match: p is {}x{}, out is {}x{}",
+            p.rows, p.cols, out.rows, out.cols);
+
+        // TODO: maybe not technically correct
+
+        // Formula for a single sample
+        for i in 0..out.data.len() {
+            if p.data[i] == 0.0 {
+                out.data[i] = 0.0;
+            }
+            else {
+                out.data[i] = p.data[i] * -q.data[i].ln();
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -390,5 +411,27 @@ mod tests {
         // Larger input → larger probability
         assert!(out.data[2] > out.data[1]);
         assert!(out.data[1] > out.data[0]);
+    }
+
+    #[test]
+    fn test_cross_entropy() {
+        // p = one-hot label (true class is 1)
+        // q = predicted probabilities
+        let p = Matrix { rows: 1, cols: 3, data: vec![0.0, 1.0, 0.0] };
+        let q = Matrix { rows: 1, cols: 3, data: vec![0.1, 0.7, 0.2] };
+        let mut out = Matrix::zeros(1, 3);
+        Matrix::cross_entropy(&p, &q, &mut out);
+
+        // Element-wise: p[i] * -ln(q[i])
+        // out[0] = 0 * -ln(0.1) = 0
+        // out[1] = 1 * -ln(0.7) ≈ 0.357
+        // out[2] = 0 * -ln(0.2) = 0
+        assert_eq!(out.data[0], 0.0);
+        assert!((out.data[1] - (-0.7_f32.ln())).abs() < 1e-6);
+        assert_eq!(out.data[2], 0.0);
+
+        // Cross-entropy loss = sum ≈ 0.357
+        let loss = out.sum();
+        assert!((loss - (-0.7_f32.ln())).abs() < 1e-6);
     }
 }
