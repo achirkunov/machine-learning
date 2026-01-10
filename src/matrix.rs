@@ -1,4 +1,7 @@
 use std::fs;
+use std::fs::File;
+use std::io::Read;
+use std::io::BufReader;
 
 #[derive(Debug)] // Auto-generates code to print the struct
 pub struct Matrix {
@@ -198,17 +201,36 @@ impl Matrix {
 
     pub fn load(rows: usize, cols: usize, filename: &str) -> Self {
         // expect unwraps a Result or Option
-        let bytes = fs::read(filename).expect("failed to read file: {filename");
+        // let bytes = fs::read(filename).expect("failed to read file: {filename");
 
-        assert!(bytes.len() == rows * cols * 4,
-          "file size mismatch: expected {} bytes, got {}",
-          rows * cols * 4, bytes.len());
+        // assert!(bytes.len() == rows * cols * 4,
+        //   "file size mismatch: expected {} bytes, got {}",
+        //   rows * cols * 4, bytes.len());
 
-        let data: Vec<f32> = bytes
-            .chunks_exact(4)
-            .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
-            .collect();
+        // let data: Vec<f32> = bytes
+        //     .chunks_exact(4)
+        //     .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+        //     .collect();
 
+        let mut data = vec![0.0_f32; rows * cols];
+        let mut file = File::open(filename).expect("failed to open file");
+
+        unsafe {
+            let buf = std::slice::from_raw_parts_mut(
+                data.as_mut_ptr() as *mut u8,
+                data.len() * 4
+            );
+            file.read_exact(buf).expect("failed to read file");
+        }
+        // let mut reader = BufReader::new(File::open(filename).expect("failed to open"));
+        // let mut data = Vec::with_capacity(rows * cols);
+        // let mut buf = [0u8; 4];
+
+        // while reader.read_exact(&mut buf).is_ok() {
+        //     data.push(f32::from_le_bytes(buf));
+        // }
+
+        // assert_eq!(data.len(), rows * cols, "file size mismatch");
 
         Self { rows, cols, data}
     }
