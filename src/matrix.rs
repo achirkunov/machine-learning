@@ -148,6 +148,30 @@ impl Matrix {
             }
         }
     }
+
+    fn relu(a: &Matrix, out: &mut Matrix) {
+        assert!(a.rows == out.rows && a.cols == out.cols,
+            "a and out dimensions must match: a is {}x{}, out is {}x{}",
+            a.rows, a.cols, out.rows, out.cols);
+        
+        for i in 0..a.data.len() {
+            out.data[i] = a.data[i].max(0.0);
+        }
+    }
+
+    // TODO: compute softmax per row instead of entire matrix
+    fn softmax(a: &Matrix, out: &mut Matrix) {
+        // o_i = e^a_i / sum(e^a_j)
+        assert!(a.rows == out.rows && a.cols == out.cols,
+            "a and out dimensions must match: a is {}x{}, out is {}x{}",
+            a.rows, a.cols, out.rows, out.cols);
+        let mut sum = 0.0;
+        for i in 0..a.data.len() {
+            out.data[i] = a.data[i].exp();
+            sum += out.data[i];
+        }
+        Matrix::scale(out, 1.0 / sum);
+    }
 }
 
 #[cfg(test)]
@@ -342,5 +366,29 @@ mod tests {
         let mut out = Matrix::zeros(3, 3);
         Matrix::mul(&a, &b, &mut out, true, true);
         assert_eq!(out.data, vec![39.0, 49.0, 59.0, 54.0, 68.0, 82.0, 69.0, 87.0, 105.0]);
+    }
+
+    #[test]
+    fn test_relu() {
+        let a = Matrix { rows: 2, cols: 3, data: vec![-2.0, -1.0, 0.0, 1.0, 2.0, 3.0] };
+        let mut out = Matrix::zeros(2, 3);
+        Matrix::relu(&a, &mut out);
+        assert_eq!(out.data, vec![0.0, 0.0, 0.0, 1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_softmax() {
+        // Single row for now (TODO: test per-row softmax later)
+        let a = Matrix { rows: 1, cols: 3, data: vec![1.0, 2.0, 3.0] };
+        let mut out = Matrix::zeros(1, 3);
+        Matrix::softmax(&a, &mut out);
+
+        // Should sum to 1.0
+        let sum: f32 = out.data.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-6);
+
+        // Larger input → larger probability
+        assert!(out.data[2] > out.data[1]);
+        assert!(out.data[1] > out.data[0]);
     }
 }
