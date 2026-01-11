@@ -79,22 +79,12 @@ impl ModelBuilder {
 
     /// Add an input variable (data fed from outside, no gradient)
     pub fn input(&mut self, rows: usize, cols: usize) -> VarId {
-        self.add_var(
-            Matrix::zeros(rows, cols),
-            None,
-            Op::Input,
-            VarKind::Input,
-        )
+        self.push(Matrix::zeros(rows, cols), None, Op::Input, VarKind::Input)
     }
 
     /// Add a trainable parameter (random init, has gradient)
     pub fn parameter(&mut self, rows: usize, cols: usize) -> VarId {
-        self.add_var(
-            Matrix::zeros(rows, cols), // TODO: random init
-            Some(Matrix::zeros(rows, cols)),
-            Op::Parameter,
-            VarKind::Parameter,
-        )
+        self.push_with_grad(rows, cols, Op::Parameter, VarKind::Parameter)
     }
 
     /// Matrix multiplication: result = a @ b
@@ -111,26 +101,17 @@ impl ModelBuilder {
 
     /// ReLU activation
     pub fn relu(&mut self, x: VarId) -> VarId {
-        let rows = self.vars[x as usize].val.rows;
-        let cols = self.vars[x as usize].val.cols;
-        self.add_var(
-            Matrix::zeros(rows, cols),
-            Some(Matrix::zeros(rows, cols)),
-            Op::ReLU(x),
-            VarKind::Intermediate,
-        )
+        self.unary(x, Op::ReLU(x), VarKind::Intermediate)
     }
 
     /// Softmax activation
     pub fn softmax(&mut self, x: VarId) -> VarId {
-        let rows = self.vars[x as usize].val.rows;
-        let cols = self.vars[x as usize].val.cols;
-        self.add_var(
-            Matrix::zeros(rows, cols),
-            Some(Matrix::zeros(rows, cols)),
-            Op::Softmax(x),
-            VarKind::Intermediate,
-        )
+        self.unary(x, Op::Softmax(x), VarKind::Intermediate)
+    }
+
+    /// Cross-entropy loss
+    pub fn cross_entropy(&mut self, pred: VarId, target: VarId) -> VarId {
+        self.push_with_grad(1, 1, Op::CrossEntropy(pred, target), VarKind::Cost)
     }
 
     /// Element-wise addition: result = a + b
@@ -159,20 +140,32 @@ impl ModelBuilder {
         )
     }
 
-    /// Cross-entropy loss
-    pub fn cross_entropy(&mut self, pred: VarId, target: VarId) -> VarId {
-        self.add_var(
-            Matrix::zeros(1, 1),
-            Some(Matrix::zeros(1, 1)),
-            Op::CrossEntropy(pred, target),
-            VarKind::Cost,
-        )
-    }
-
     fn add_var(&mut self, val: Matrix, grad: Option<Matrix>, op: Op, kind: VarKind) -> VarId {
         let id = self.vars.len() as VarId;
         self.vars.push(Var { val, grad, op, kind });
         id
+    }
+
+    fn push(&mut self, val: Matrix, grad: Option<Matrix>, op: Op, kind: VarKind) -> VarId {
+        let id = self.vars.len() as VarId;
+        self.vars.push(Var { val, grad, op, kind});
+        id
+    }
+
+    fn push_with_grad(&mut self, rows: usize, cols: usize, op: Op, kind: VarKind) -> VarId {
+        self.push(
+            Matrix::zeros(rows, cols),
+            Some(Matrix::zeros(rows, cols)),
+            op,
+            kind,
+        )
+    }
+
+    fn unary(&mut self, x: VarId, op: Op, kind: VarKind) -> VarId {
+        // unary ops preserve shape - the output of relu(x) has the same dimension as x
+        let rows = self.vars[x as usize].val.rows;
+        let cols = self.vars[x as usize].val.cols;
+        self.push_with_grad(rows, cols, op, kind)
     }
 
     /// Build the final model context
