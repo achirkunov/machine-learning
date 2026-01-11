@@ -121,6 +121,44 @@ impl ModelBuilder {
         )
     }
 
+    /// Softmax activation
+    pub fn softmax(&mut self, x: VarId) -> VarId {
+        let rows = self.vars[x as usize].val.rows;
+        let cols = self.vars[x as usize].val.cols;
+        self.add_var(
+            Matrix::zeros(rows, cols),
+            Some(Matrix::zeros(rows, cols)),
+            Op::Softmax(x),
+            VarKind::Intermediate,
+        )
+    }
+
+    /// Element-wise addition: result = a + b
+    pub fn add(&mut self, a: VarId, b: VarId) -> VarId {
+        let rows = self.vars[a as usize].val.rows;
+        let cols = self.vars[a as usize].val.cols;
+        // TODO: assert a and b have same shape
+        self.add_var(
+            Matrix::zeros(rows, cols),
+            Some(Matrix::zeros(rows, cols)),
+            Op::Add(a, b),
+            VarKind::Intermediate,
+        )
+    }
+
+    /// Element-wise subtraction: result = a - b
+    pub fn sub(&mut self, a: VarId, b: VarId) -> VarId {
+        let rows = self.vars[a as usize].val.rows;
+        let cols = self.vars[a as usize].val.cols;
+        // TODO: assert a and b have same shape
+        self.add_var(
+            Matrix::zeros(rows, cols),
+            Some(Matrix::zeros(rows, cols)),
+            Op::Sub(a, b),
+            VarKind::Intermediate,
+        )
+    }
+
     /// Cross-entropy loss
     pub fn cross_entropy(&mut self, pred: VarId, target: VarId) -> VarId {
         self.add_var(
