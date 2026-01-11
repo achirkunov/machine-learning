@@ -1,6 +1,9 @@
 mod matrix;
+mod model;
 
 use matrix::Matrix;
+use model::ModelContext;
+use model::ModelBuilder;
 
 fn draw_mnist_digit(data: &[f32]) {
     for y in 0..28 {
@@ -45,5 +48,14 @@ fn main() {
     for i in 0..10 {
         print!("{} ", train_labels.data[image_idx * 10 + i]);
     }
+
+    let mut b = ModelBuilder::new();
+    let x = b.input(1, 784); // 0
+    let w = b.parameter(784, 10); // 1
+    let logits = b.matmul(x, w); // 2
+    let y = b.input(1, 10); // 3
+    let loss = b.cross_entropy(logits, y); // 4
+
+    let m = b.build(x, logits, y, loss);
 
 }
