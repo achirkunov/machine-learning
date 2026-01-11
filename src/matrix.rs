@@ -31,6 +31,20 @@ impl Matrix {
         Self::full(rows, cols, 1.0)
     }
 
+    /// Random uniform values in [0, 1)
+    pub fn rand(rows: usize, cols: usize) -> Self {
+        let data: Vec<f32> = (0..rows * cols).map(|_| fastrand::f32()).collect();
+        Self { rows, cols, data }
+    }
+
+    /// Random values in [-scale, scale] for weight initialization
+    pub fn rand_scaled(rows: usize, cols: usize, scale: f32) -> Self {
+        let data: Vec<f32> = (0..rows * cols)
+            .map(|_| (fastrand::f32() - 0.5) * 2.0 * scale)
+            .collect();
+        Self { rows, cols, data }
+    }
+
     // The idiomatic Rust pattern is:
     // clear(&mut self) - mutates in place
     pub fn fill(&mut self, x: f32) {
@@ -284,6 +298,25 @@ mod tests {
     fn test_ones() {
         let m = Matrix::ones(2, 3);
         assert!(m.data.iter().all(|&x| x == 1.0));
+    }
+
+    #[test]
+    fn test_rand() {
+        let m = Matrix::rand(10, 10);
+        assert_eq!(m.data.len(), 100);
+        // All values should be in [0, 1)
+        assert!(m.data.iter().all(|&x| x >= 0.0 && x < 1.0));
+        // Should have some variance (not all same value)
+        let first = m.data[0];
+        assert!(m.data.iter().any(|&x| x != first));
+    }
+
+    #[test]
+    fn test_rand_scaled() {
+        let m = Matrix::rand_scaled(10, 10, 0.1);
+        assert_eq!(m.data.len(), 100);
+        // All values should be in [-0.1, 0.1]
+        assert!(m.data.iter().all(|&x| x >= -0.1 && x <= 0.1));
     }
 
     #[test]

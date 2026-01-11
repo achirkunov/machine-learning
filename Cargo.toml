@@ -8,4 +8,4 @@ name = "ml"
 path = "src/main.rs"
 
 [dependencies]
-rand = "0.8"
+fastrand = "2.3.0"
