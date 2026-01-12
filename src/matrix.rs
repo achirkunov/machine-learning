@@ -168,7 +168,7 @@ impl Matrix {
         }
     }
 
-    fn relu(a: &Matrix, out: &mut Matrix) {
+    pub fn relu(a: &Matrix, out: &mut Matrix) {
         assert!(a.rows == out.rows && a.cols == out.cols,
             "a and out dimensions must match: a is {}x{}, out is {}x{}",
             a.rows, a.cols, out.rows, out.cols);
@@ -179,7 +179,7 @@ impl Matrix {
     }
 
     // TODO: compute softmax per row instead of entire matrix
-    fn softmax(a: &Matrix, out: &mut Matrix) {
+    pub fn softmax(a: &Matrix, out: &mut Matrix) {
         // o_i = e^a_i / sum(e^a_j)
         assert!(a.rows == out.rows && a.cols == out.cols,
             "a and out dimensions must match: a is {}x{}, out is {}x{}",
@@ -192,7 +192,7 @@ impl Matrix {
         Matrix::scale(out, 1.0 / sum);
     }
 
-    fn cross_entropy(p: &Matrix, q: &Matrix, out: &mut Matrix) {
+    pub fn cross_entropy(p: &Matrix, q: &Matrix, out: &mut Matrix) {
         assert!(p.rows == q.rows && p.cols == q.cols,
             "p and q dimensions must match: p is {}x{}, q is {}x{}",
             p.rows, p.cols, q.rows, q.cols);

@@ -1,6 +1,7 @@
 # ML from Scratch
 
-A machine learning library built from scratch in Rust.
+A machine learning library built from scratch in Rust, based on on the [coding a machine learning library in c from scratch
+](https://youtu.be/hL_n_GljC0I?si=5L3SVZsUfHhv0gvI) video.
 
 ## Development
 
