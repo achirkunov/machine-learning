@@ -267,7 +267,6 @@ impl ModelContext {
                 let lhs = &inputs[a as usize].val;
                 let rhs = &inputs[b as usize].val;
                 let out = &mut outputs[0].val;
-                out.clear(); // MatMul accumulates, so clear first
                 Matrix::mul(lhs, rhs, out, false, false);
             }
             Op::CrossEntropy(pred, target) => {

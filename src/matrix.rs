@@ -112,7 +112,13 @@ impl Matrix {
         assert!(out.rows == a_rows && out.cols == b_cols,
             "out dimensions must match result: expected {}x{}, got {}x{}",
             a_rows, b_cols, out.rows, out.cols);
-        
+
+        // Clear output buffer since inner loops use += to accumulate.
+        // Without this, repeated calls would accumulate on previous results.
+        // Note: if you need C = A1*B1 + A2*B2 (accumulating multiple products),
+        // you'd need a separate mul_accumulate() that skips this clear.
+        out.clear();
+
         // The match is more idiomatic Rust and makes the intent clearer without bit unpacking
         match (transpose_a, transpose_b) {
             (false, false) => { Self::mul_nn(a, b, out) }
