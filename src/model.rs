@@ -284,7 +284,9 @@ impl ModelContext {
     pub fn zero_grad(&mut self) {
         for var in &mut self.vars {
             match var.grad {
-                // ref mut exists to say "create a reference" in a pattern position
+                // ref mut: creates a mutable reference when pattern matching.
+                // Without it, Some(g) would try to move the Matrix out of the Option.
+                // With ref mut, g is &mut Matrix and we can modify it in place.
                 Some(ref mut g) => { g.clear(); }
                 None => {}
             }
@@ -297,8 +299,10 @@ impl ModelContext {
         self.zero_grad();
 
         // 1. Seed: dL/dLoss = 1.0
-        // We call .as_mut() to convert Option<T> to Option<&mut T>
-        // then unwrap gives &mut T (a reference)
+        // .as_mut(): converts Option<Matrix> to Option<&mut Matrix>
+        //            (lets us get a mutable ref without moving ownership)
+        // .unwrap(): extracts the inner value, panics if None
+        //            (safe here because we know loss has a gradient)
         self.vars[self.loss as usize].grad.as_mut().unwrap().fill(1.0);
 
         // 2. Iterate in reverse topological order
@@ -318,8 +322,18 @@ impl ModelContext {
                 // Leaf nodes: nothing to propagate backward
             }
             Op::Add(a, b) => {
+                // split_at_mut(idx): splits Vec into two mutable slices at position idx.
+                // This lets us hold mutable refs to different parts simultaneously,
+                // which the borrow checker normally forbids for the same Vec.
+                // inputs = &mut vars[0..idx], current_and_rest = &mut vars[idx..]
                 let (inputs, current_and_rest) = self.vars.split_at_mut(idx);
+
+                // .as_ref(): converts Option<Matrix> to Option<&Matrix>
+                //            (we only need to read current_grad, not modify it)
+                // .unwrap(): safe because we checked grad.is_some() at function start
                 let current_grad = current_and_rest[0].grad.as_ref().unwrap();
+
+                // ref mut in pattern: creates &mut Matrix without moving out of Option
                 if let Some(ref mut grad_a) = inputs[a as usize].grad {
                     Matrix::add_into(current_grad, grad_a);
                 }
