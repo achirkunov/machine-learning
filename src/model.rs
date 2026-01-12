@@ -341,6 +341,16 @@ impl ModelContext {
                     Matrix::add_into(current_grad, grad_b);
                 }
             },
+            Op::Sub(a, b) => {
+                let (inputs, current_and_rest) = self.vars.split_at_mut(idx);
+                let current_grad = current_and_rest[0].grad.as_ref().unwrap();
+                if let Some(ref mut grad_a) = inputs[a as usize].grad {
+                    Matrix::add_into(current_grad, grad_a);
+                }
+                if let Some(ref mut grad_b) = inputs[b as usize].grad {
+                    Matrix::sub_into(current_grad, grad_b);
+                }
+            },
             _ => todo!()
         }
     }

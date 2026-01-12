@@ -32,3 +32,15 @@ This creates four binary files:
 - `train_labels.mat` — 60k training labels (0-9)
 - `test_images.mat` — 10k test images
 - `test_labels.mat` — 10k test labels
+
+## Gradient Formulas
+
+Backpropagation computes gradients by applying the chain rule in reverse topological order. For each operation, given the upstream gradient `dL/dz`, we compute gradients for the inputs.
+
+| Op | Forward | Backward |
+|----|---------|----------|
+| `Add(a, b)` | `z = a + b` | `dL/da += dL/dz`, `dL/db += dL/dz` |
+| `Sub(a, b)` | `z = a - b` | `dL/da += dL/dz`, `dL/db -= dL/dz` |
+| `ReLU(x)` | `y = max(0, x)` | `dL/dx += dL/dy * (x > 0 ? 1 : 0)` |
+| `MatMul(A, B)` | `Z = A × B` | `dL/dA += dL/dZ × Bᵀ`, `dL/dB += Aᵀ × dL/dZ` |
+| `Softmax + CrossEntropy` | `L = -Σ(target * ln(softmax(x)))` | `dL/dx = softmax(x) - target` |
