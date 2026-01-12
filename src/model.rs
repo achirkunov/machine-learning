@@ -351,6 +351,22 @@ impl ModelContext {
                     Matrix::sub_into(current_grad, grad_b);
                 }
             },
+            Op::MatMul(a, b) => {
+                let (inputs, current_and_rest) = self.vars.split_at_mut(idx);
+                let current_grad = current_and_rest[0].grad.as_ref().unwrap();
+                let a_mat = &inputs[a as usize].val; // we need the ref?
+                let b_mat = &inputs[b as usize].val;
+                if let Some(ref mut grad_a) = inputs[a as usize].grad {
+                    let mut temp = Matrix::zeros(grad_a.rows, grad_a.cols);
+                    Matrix::mul(current_grad, b_mat, &mut temp, false, true);
+                    Matrix::add_into(&temp, grad_a);
+                }
+                if let Some(ref mut grad_b) = inputs[b as usize].grad {
+                    let mut temp = Matrix::zeros(grad_b.rows, grad_b.cols);
+                    Matrix::mul(a_mat, current_grad, &mut temp, true, false);
+                    Matrix::add_into(&temp, grad_b);
+                }
+            }
             _ => todo!()
         }
     }
@@ -627,5 +643,39 @@ mod tests {
             "p1 grad: expected all 1.0, got {:?}", p1_grad.data);
         assert!(p2_grad.data.iter().all(|&v| v == 1.0),
             "p2 grad: expected all 1.0, got {:?}", p2_grad.data);
+    }
+
+    #[test]
+    fn test_backward_matmul() {
+        // Graph: Z = A × B, where A and B are parameters
+        // A = [[1, 2], [3, 4]], B = [[5, 6], [7, 8]]
+        // Z = [[19, 22], [43, 50]]
+        //
+        // With dL/dZ = [[1, 1], [1, 1]] (loss gradient seeded as 1.0):
+        // dL/dA = dL/dZ × B^T = [[1,1],[1,1]] × [[5,7],[6,8]] = [[11, 15], [11, 15]]
+        // dL/dB = A^T × dL/dZ = [[1,3],[2,4]] × [[1,1],[1,1]] = [[4, 4], [6, 6]]
+        let mut b = ModelBuilder::new();
+        let x = b.input(1, 1);  // dummy input
+        let a = b.parameter(2, 2);
+        let param_b = b.parameter(2, 2);
+        let z = b.matmul(a, param_b);
+        let mut m = b.build(x, z, x, z);
+
+        // Set parameter values
+        m.vars[1].val = Matrix { rows: 2, cols: 2, data: vec![1.0, 2.0, 3.0, 4.0] };
+        m.vars[2].val = Matrix { rows: 2, cols: 2, data: vec![5.0, 6.0, 7.0, 8.0] };
+        m.forward();
+
+        m.backward();
+
+        // dL/dA = [[11, 15], [11, 15]]
+        let grad_a = m.vars[1].grad.as_ref().unwrap();
+        assert_eq!(grad_a.data, vec![11.0, 15.0, 11.0, 15.0],
+            "grad_a: expected [11, 15, 11, 15], got {:?}", grad_a.data);
+
+        // dL/dB = [[4, 4], [6, 6]]
+        let grad_b = m.vars[2].grad.as_ref().unwrap();
+        assert_eq!(grad_b.data, vec![4.0, 4.0, 6.0, 6.0],
+            "grad_b: expected [4, 4, 6, 6], got {:?}", grad_b.data);
     }
 }
