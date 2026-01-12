@@ -202,10 +202,17 @@ impl ModelBuilder {
 
 impl ModelContext {
 
+    // Copy data into input buffer
     pub fn set_input(&mut self, data: &Matrix) {
         // TODO: avoid copy_into?
         let input_idx = self.input as usize;
         matrix::Matrix::copy_into(&data, &mut self.vars[input_idx].val);
+    }
+
+    /// Direct access to input buffer (for zero-copy data loading
+    /// Callers who can write directly straight into buffer
+    pub fn input_buffer_mut(&mut self) -> &mut Matrix {
+        &mut self.vars[self.input as usize].val
     }
 
     pub fn output(&self) -> &Matrix {
@@ -229,6 +236,7 @@ impl ModelContext {
                 // No computation needed
             }
             Op::ReLU(x) => {
+                // Topological order ensure inputs < output index
                 let (inputs, outputs) = self.vars.split_at_mut(idx);
                 let src = &inputs[x as usize].val;
                 let dst = &mut outputs[0].val;
