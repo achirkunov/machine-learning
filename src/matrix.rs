@@ -97,6 +97,16 @@ impl Matrix {
         }
     }
 
+    /// Accumulating add: dst[i] += src[i]
+    pub fn add_into(src: &Matrix, dst: &mut Matrix) {
+        assert!(src.rows == dst.rows && src.cols == dst.cols,
+            "src and dst dimensions must match: src is {}x{}, dst is {}x{}",
+            src.rows, src.cols, dst.rows, dst.cols);
+        for i in 0..src.data.len() {
+            dst.data[i] += src.data[i];
+        }
+    }
+
     pub fn mul(a: &Matrix, b: &Matrix, out: &mut Matrix, transpose_a: bool, transpose_b: bool) {
         // The idea behind tranpose is to avoid transposing the matrix in memory
         // Instead we just change the indexing position
@@ -282,6 +292,18 @@ mod tests {
         let mut out = Matrix::zeros(2, 2);
         Matrix::add(&a, &b, &mut out);
         assert!(out.data.iter().all(|&x| x == 3.0));
+    }
+
+    #[test]
+    fn test_add_into() {
+        let src = Matrix::zeros(2, 2).filled(3.0);
+        let mut dst = Matrix::zeros(2, 2).filled(5.0);
+        Matrix::add_into(&src, &mut dst);
+        assert!(dst.data.iter().all(|&x| x == 8.0));
+
+        // Verify accumulation works (call again)
+        Matrix::add_into(&src, &mut dst);
+        assert!(dst.data.iter().all(|&x| x == 11.0));
     }
 
     #[test]

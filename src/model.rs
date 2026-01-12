@@ -290,6 +290,47 @@ impl ModelContext {
             }
         }
     }
+
+    pub fn backward(&mut self) {
+
+        // 0. Zero grads (why?)
+        self.zero_grad();
+
+        // 1. Seed: dL/dLoss = 1.0
+        // We call .as_mut() to convert Option<T> to Option<&mut T>
+        // then unwrap gives &mut T (a reference)
+        self.vars[self.loss as usize].grad.as_mut().unwrap().fill(1.0);
+
+        // 2. Iterate in reverse topological order
+        // We need to use .clone(), because Rust cannot tell than compute_grad doesn't modify forward_prog
+        for &id in self.forward_prog.clone().iter().rev() {
+            self.compute_grad(id);
+        }
+    }
+
+    fn compute_grad(&mut self, id: VarId) {
+        let idx = id as usize;
+        if self.vars[idx].grad.is_none() {
+            return; // Skip nodes without gradients
+        }
+        match self.vars[idx].op {
+            Op::Input | Op::Parameter => {
+                // Leaf nodes: nothing to propagate backward
+            }
+            Op::Add(a, b) => {
+                let (inputs, current_and_rest) = self.vars.split_at_mut(idx);
+                let current_grad = current_and_rest[0].grad.as_ref().unwrap();
+                if let Some(ref mut grad_a) = inputs[a as usize].grad {
+                    Matrix::add_into(current_grad, grad_a);
+                }
+                if let Some(ref mut grad_b) = inputs[b as usize].grad {
+                    Matrix::add_into(current_grad, grad_b);
+                }
+            },
+            _ => todo!()
+        }
+    }
+
 }
 
 #[cfg(test)]
@@ -508,5 +549,59 @@ mod tests {
 
         // Input (x) should have no gradient
         assert!(m.vars[0].grad.is_none());
+    }
+
+    #[test]
+    fn test_backward_add() {
+        // Graph: z = x + p, where x is input (no grad), p is parameter (has grad)
+        // After backward, p.grad should equal 1.0 (the seeded loss gradient)
+        let mut b = ModelBuilder::new();
+        let x = b.input(2, 3);
+        let p = b.parameter(2, 3);
+        let z = b.add(x, p);
+        let mut m = b.build(x, z, x, z); // z is both output and "loss"
+
+        // Set values
+        m.vars[0].val = Matrix { rows: 2, cols: 3, data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0] };
+        m.vars[1].val = Matrix { rows: 2, cols: 3, data: vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6] };
+        m.forward();
+
+        // backward() seeds z.grad with 1.0, then propagates
+        m.backward();
+
+        // x has no gradient (input)
+        assert!(m.vars[0].grad.is_none());
+
+        // p.grad should be all 1.0 (gradient passed through unchanged from z)
+        let p_grad = m.vars[1].grad.as_ref().unwrap();
+        assert!(p_grad.data.iter().all(|&v| v == 1.0),
+            "expected all 1.0, got {:?}", p_grad.data);
+    }
+
+    #[test]
+    fn test_backward_add_two_params() {
+        // Graph: z = p1 + p2, both are parameters
+        // After backward, both p1.grad and p2.grad should equal 1.0
+        let mut b = ModelBuilder::new();
+        let x = b.input(1, 1);  // dummy input required by build
+        let p1 = b.parameter(2, 2);
+        let p2 = b.parameter(2, 2);
+        let z = b.add(p1, p2);
+        let mut m = b.build(x, z, x, z);
+
+        // Set parameter values
+        m.vars[1].val = Matrix { rows: 2, cols: 2, data: vec![1.0, 2.0, 3.0, 4.0] };
+        m.vars[2].val = Matrix { rows: 2, cols: 2, data: vec![10.0, 20.0, 30.0, 40.0] };
+        m.forward();
+
+        m.backward();
+
+        // Both parameters should have gradient = 1.0
+        let p1_grad = m.vars[1].grad.as_ref().unwrap();
+        let p2_grad = m.vars[2].grad.as_ref().unwrap();
+        assert!(p1_grad.data.iter().all(|&v| v == 1.0),
+            "p1 grad: expected all 1.0, got {:?}", p1_grad.data);
+        assert!(p2_grad.data.iter().all(|&v| v == 1.0),
+            "p2 grad: expected all 1.0, got {:?}", p2_grad.data);
     }
 }
