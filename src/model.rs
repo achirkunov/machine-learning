@@ -242,7 +242,43 @@ impl ModelContext {
                 let dst = &mut outputs[0].val;
                 Matrix::relu(src, dst);
             },
-            _ => todo!()
+            Op::Add(a, b) => {
+                let (inputs, outputs) = self.vars.split_at_mut(idx);
+                let lhs = &inputs[a as usize].val;
+                let rhs = &inputs[b as usize].val;
+                let out = &mut outputs[0].val;
+                Matrix::add(lhs, rhs, out);
+            }
+            Op::Softmax(x) => {
+                let (inputs, outputs) = self.vars.split_at_mut(idx);
+                let src = &inputs[x as usize].val;
+                let dst = &mut outputs[0].val;
+                Matrix::softmax(src, dst);
+            }
+            Op::Sub(a, b) => {
+                let (inputs, outputs) = self.vars.split_at_mut(idx);
+                let lhs = &inputs[a as usize].val;
+                let rhs = &inputs[b as usize].val;
+                let out = &mut outputs[0].val;
+                Matrix::sub(lhs, rhs, out);
+            }
+            Op::MatMul(a, b) => {
+                let (inputs, outputs) = self.vars.split_at_mut(idx);
+                let lhs = &inputs[a as usize].val;
+                let rhs = &inputs[b as usize].val;
+                let out = &mut outputs[0].val;
+                out.clear(); // MatMul accumulates, so clear first
+                Matrix::mul(lhs, rhs, out, false, false);
+            }
+            Op::CrossEntropy(pred, target) => {
+                let (inputs, outputs) = self.vars.split_at_mut(idx);
+                let p = &inputs[pred as usize].val;
+                let t = &inputs[target as usize].val;
+                // Cross entropy output is 1x1 scalar, sum element-wise results
+                let mut temp = Matrix::zeros(p.rows, p.cols);
+                Matrix::cross_entropy(t, p, &mut temp);
+                outputs[0].val.data[0] = temp.sum();
+            }
         }
     }
 }
@@ -345,5 +381,96 @@ mod tests {
 
         let out = m.output();
         assert_eq!(out.data, &[0.0, 2.0, 0.0, 4.0, 0.0, 6.0]);
+    }
+
+    #[test]
+    fn test_compute_add() {
+        let mut b = ModelBuilder::new();
+        let x = b.input(2, 3);
+        let y = b.input(2, 3);
+        let z = b.add(x, y);
+        let mut m = b.build(x, z, x, z); // dummy target/loss
+
+        // Set both inputs
+        m.vars[0].val = Matrix { rows: 2, cols: 3, data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0] };
+        m.vars[1].val = Matrix { rows: 2, cols: 3, data: vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0] };
+        m.forward();
+
+        let out = m.output();
+        assert_eq!(out.data, vec![11.0, 22.0, 33.0, 44.0, 55.0, 66.0]);
+    }
+
+    #[test]
+    fn test_compute_softmax() {
+        let mut b = ModelBuilder::new();
+        let x = b.input(1, 3);
+        let y = b.softmax(x);
+        let mut m = b.build(x, y, x, y);
+
+        m.vars[0].val = Matrix { rows: 1, cols: 3, data: vec![1.0, 2.0, 3.0] };
+        m.forward();
+
+        let out = m.output();
+        // Softmax: e^x_i / sum(e^x_j)
+        let sum: f32 = out.data.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-6, "softmax should sum to 1.0");
+        // Larger input -> larger probability
+        assert!(out.data[2] > out.data[1]);
+        assert!(out.data[1] > out.data[0]);
+    }
+
+    #[test]
+    fn test_compute_sub() {
+        let mut b = ModelBuilder::new();
+        let x = b.input(2, 3);
+        let y = b.input(2, 3);
+        let z = b.sub(x, y);
+        let mut m = b.build(x, z, x, z);
+
+        m.vars[0].val = Matrix { rows: 2, cols: 3, data: vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0] };
+        m.vars[1].val = Matrix { rows: 2, cols: 3, data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0] };
+        m.forward();
+
+        let out = m.output();
+        assert_eq!(out.data, vec![9.0, 18.0, 27.0, 36.0, 45.0, 54.0]);
+    }
+
+    #[test]
+    fn test_compute_matmul() {
+        let mut b = ModelBuilder::new();
+        let x = b.input(2, 3);
+        let w = b.input(3, 2);
+        let y = b.matmul(x, w);
+        let mut m = b.build(x, y, x, y);
+
+        // [1, 2, 3]   [7,  8]    [1*7+2*9+3*11, 1*8+2*10+3*12]   [58,  64]
+        // [4, 5, 6] x [9, 10] =  [4*7+5*9+6*11, 4*8+5*10+6*12] = [139, 154]
+        //             [11,12]
+        m.vars[0].val = Matrix { rows: 2, cols: 3, data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0] };
+        m.vars[1].val = Matrix { rows: 3, cols: 2, data: vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0] };
+        m.forward();
+
+        let out = m.output();
+        assert_eq!(out.data, vec![58.0, 64.0, 139.0, 154.0]);
+    }
+
+    #[test]
+    fn test_compute_cross_entropy() {
+        let mut b = ModelBuilder::new();
+        let pred = b.input(1, 3);
+        let target = b.input(1, 3);
+        let loss = b.cross_entropy(pred, target);
+        let mut m = b.build(pred, pred, target, loss);
+
+        // pred = softmax-like probabilities
+        m.vars[0].val = Matrix { rows: 1, cols: 3, data: vec![0.1, 0.7, 0.2] };
+        // target = one-hot (true class is index 1)
+        m.vars[1].val = Matrix { rows: 1, cols: 3, data: vec![0.0, 1.0, 0.0] };
+        m.forward();
+
+        // Cross entropy = -sum(target * ln(pred)) = -ln(0.7) ≈ 0.357
+        let loss_val = m.vars[m.loss as usize].val.data[0];
+        let expected = -0.7_f32.ln();
+        assert!((loss_val - expected).abs() < 1e-6);
     }
 }
