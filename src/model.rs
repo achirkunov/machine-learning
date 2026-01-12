@@ -280,6 +280,16 @@ impl ModelContext {
             }
         }
     }
+
+    pub fn zero_grad(&mut self) {
+        for var in &mut self.vars {
+            match var.grad {
+                // ref mut exists to say "create a reference" in a pattern position
+                Some(ref mut g) => { g.clear(); }
+                None => {}
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -471,5 +481,32 @@ mod tests {
         let loss_val = m.vars[m.loss as usize].val.data[0];
         let expected = -0.7_f32.ln();
         assert!((loss_val - expected).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_zero_grad() {
+        let mut b = ModelBuilder::new();
+        let x = b.input(1, 3);
+        let w = b.parameter(3, 2);  // has gradient
+        let y = b.matmul(x, w);     // has gradient
+        let mut m = b.build(x, y, x, y);
+
+        // Set non-zero values in gradients
+        m.vars[1].grad.as_mut().unwrap().fill(5.0);  // w's grad
+        m.vars[2].grad.as_mut().unwrap().fill(3.0);  // y's grad
+
+        // Verify they're non-zero
+        assert!(m.vars[1].grad.as_ref().unwrap().data.iter().all(|&v| v == 5.0));
+        assert!(m.vars[2].grad.as_ref().unwrap().data.iter().all(|&v| v == 3.0));
+
+        // Zero gradients
+        m.zero_grad();
+
+        // Verify all gradients are zeroed
+        assert!(m.vars[1].grad.as_ref().unwrap().data.iter().all(|&v| v == 0.0));
+        assert!(m.vars[2].grad.as_ref().unwrap().data.iter().all(|&v| v == 0.0));
+
+        // Input (x) should have no gradient
+        assert!(m.vars[0].grad.is_none());
     }
 }

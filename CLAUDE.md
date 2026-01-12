@@ -31,10 +31,31 @@ Matrix::mul(&a, &b, &mut out, transpose_a, transpose_b);
 
 ### Module Structure
 
-- `matrix.rs` - Core Matrix type with row-major f32 storage. All operations (add, sub, mul, relu, softmax) implemented here with tests.
+- `matrix.rs` - Core Matrix type with row-major f32 storage. All operations (add, sub, mul, relu, softmax, cross_entropy) implemented here with tests.
+- `model.rs` - Computational graph with `ModelBuilder` and `ModelContext`. Forward pass complete, backward pass not yet implemented.
 - `tensor.rs`, `activation.rs`, `loss.rs`, `layer.rs`, `optim.rs` - Placeholder modules for future expansion.
+
+### Computational Graph Design
+
+**VarId indexing** instead of pointers - borrow-checker friendly:
+```rust
+type VarId = u32;
+let x = builder.input(1, 784);   // returns VarId 0
+let w = builder.parameter(784, 10); // returns VarId 1
+let y = builder.matmul(x, w);    // returns VarId 2
+```
+
+**Topological order by construction** - builder only allows referencing existing VarIds, so `forward_prog = [0, 1, 2, ...]` is already sorted. No explicit toposort needed.
+
+**split_at_mut pattern** for compute - avoids borrow checker issues when reading inputs and writing outputs from same Vec:
+```rust
+let (inputs, outputs) = self.vars.split_at_mut(idx);
+let src = &inputs[x as usize].val;
+let dst = &mut outputs[0].val;
+```
 
 ### Known TODOs in Code
 
-- `softmax` currently computes over entire matrix, needs per-row computation
+- `softmax` currently computes over entire matrix, needs per-row computation for batching
+- Backward pass not yet implemented (gradients stored in `Var.grad` but never computed)
 - Consider `u32` for rows/cols for memory optimization with many small matrices
