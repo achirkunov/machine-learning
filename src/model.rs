@@ -13,7 +13,7 @@
 //! A ModelBuilder (not yet implemented) would construct the graph
 //! and guarantee topological ordering.
 
-use crate::matrix::Matrix;
+use crate::matrix::{self, Matrix};
 
 type VarId = u32;
 
@@ -70,6 +70,12 @@ pub struct ModelContext {
 /// Ensures topological ordering by construction.
 pub struct ModelBuilder {
     vars: Vec<Var>,
+}
+
+pub struct ModelTrainingDesc {
+    epochs: u32,
+    batch_size: u32,
+    learning_rate: f32,
 }
 
 impl ModelBuilder {
@@ -190,6 +196,47 @@ impl ModelBuilder {
             cost_prog: all_ids,
         }
     }
+
+
+}
+
+impl ModelContext {
+
+    pub fn set_input(&mut self, data: &Matrix) {
+        // TODO: avoid copy_into?
+        let input_idx = self.input as usize;
+        matrix::Matrix::copy_into(&data, &mut self.vars[input_idx].val);
+    }
+
+    pub fn output(&self) -> &Matrix {
+        &self.vars[self.output as usize].val
+    }
+
+
+    pub fn forward(&mut self) {
+        // TODO: we will need to compute topological order once at build time
+        // TODO: I don't like clone, is there a better way?
+        for &id in &self.forward_prog.clone() {
+            self.compute(id);
+        }
+    }
+
+    // Helper function
+    fn compute(&mut self, id: VarId) {
+        let idx = id as usize;
+        match self.vars[idx].op {
+            Op::Input | Op::Parameter => {
+                // No computation needed
+            }
+            Op::ReLU(x) => {
+                let (inputs, outputs) = self.vars.split_at_mut(idx);
+                let src = &inputs[x as usize].val;
+                let dst = &mut outputs[0].val;
+                Matrix::relu(src, dst);
+            },
+            _ => todo!()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -273,6 +320,22 @@ mod tests {
         assert_eq!(model.input, 0);
         assert_eq!(model.output, 2);
         assert_eq!(model.target, 3);
+       
         assert_eq!(model.loss, 4);
+    }
+
+    #[test]
+    fn test_compute_relu() {
+        let mut b = ModelBuilder::new();
+        let x = b.input(2 ,3);
+        let y = b.relu(x);
+        let mut m = b.build(x, y, x, y); // dummy
+
+        let a = Matrix { rows: 2, cols: 3, data: vec![-1.0, 2.0, -3.0, 4.0, -5.0, 6.0] };
+        let input = m.set_input(&a);
+        m.forward();
+
+        let out = m.output();
+        assert_eq!(out.data, &[0.0, 2.0, 0.0, 4.0, 0.0, 6.0]);
     }
 }
