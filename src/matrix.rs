@@ -1,7 +1,5 @@
-use std::fs;
 use std::fs::File;
 use std::io::Read;
-use std::io::BufReader;
 
 #[derive(Debug)] // Auto-generates code to print the struct
 pub struct Matrix {
@@ -14,13 +12,19 @@ impl Matrix {
     // Copy into existing buffer (avoid allocation)
     pub fn copy_into(src: &Matrix, dst: &mut Matrix) {
         // Panic if dimensions don't match (programmer error)
-        assert!(src.rows == dst.rows && src.cols == dst.cols,
-            "Matrix dimensions must match");
+        assert!(
+            src.rows == dst.rows && src.cols == dst.cols,
+            "Matrix dimensions must match"
+        );
         dst.data.copy_from_slice(&src.data);
     }
 
     pub fn full(rows: usize, cols: usize, value: f32) -> Self {
-        Self { rows, cols, data: vec![value; rows * cols] }
+        Self {
+            rows,
+            cols,
+            data: vec![value; rows * cols],
+        }
     }
 
     pub fn zeros(rows: usize, cols: usize) -> Self {
@@ -53,7 +57,11 @@ impl Matrix {
     // cleared(&self) -> Matrix returns new
     pub fn filled(&self, x: f32) -> Self {
         // Only use the explicit name (Matrix) when returning a different type
-        Self { rows:self.rows, cols:self.cols, data: vec![x; self.rows*self.cols]}
+        Self {
+            rows: self.rows,
+            cols: self.cols,
+            data: vec![x; self.rows * self.cols],
+        }
     }
 
     pub fn clear(&mut self) {
@@ -74,24 +82,44 @@ impl Matrix {
 
     // this is equivalent to void mat_add(const Matrix* a, const Matrix* b, Matrix* out)
     pub fn add(a: &Matrix, b: &Matrix, out: &mut Matrix) {
-        assert!(a.rows == b.rows && a.cols == b.cols,
+        assert!(
+            a.rows == b.rows && a.cols == b.cols,
             "a and b dimensions must match: a is {}x{}, b is {}x{}",
-            a.rows, a.cols, b.rows, b.cols);
-        assert!(a.rows == out.rows && a.cols == out.cols,
+            a.rows,
+            a.cols,
+            b.rows,
+            b.cols
+        );
+        assert!(
+            a.rows == out.rows && a.cols == out.cols,
             "a and out dimensions must match: a is {}x{}, out is {}x{}",
-            a.rows, a.cols, out.rows, out.cols);
+            a.rows,
+            a.cols,
+            out.rows,
+            out.cols
+        );
         for i in 0..a.data.len() {
             out.data[i] = a.data[i] + b.data[i];
         }
     }
 
     pub fn sub(a: &Matrix, b: &Matrix, out: &mut Matrix) {
-        assert!(a.rows == b.rows && a.cols == b.cols,
+        assert!(
+            a.rows == b.rows && a.cols == b.cols,
             "a and b dimensions must match: a is {}x{}, b is {}x{}",
-            a.rows, a.cols, b.rows, b.cols);
-        assert!(a.rows == out.rows && a.cols == out.cols,
+            a.rows,
+            a.cols,
+            b.rows,
+            b.cols
+        );
+        assert!(
+            a.rows == out.rows && a.cols == out.cols,
             "a and out dimensions must match: a is {}x{}, out is {}x{}",
-            a.rows, a.cols, out.rows, out.cols);
+            a.rows,
+            a.cols,
+            out.rows,
+            out.cols
+        );
         for i in 0..a.data.len() {
             out.data[i] = a.data[i] - b.data[i];
         }
@@ -99,9 +127,14 @@ impl Matrix {
 
     /// Accumulating add: dst[i] += src[i]
     pub fn add_into(src: &Matrix, dst: &mut Matrix) {
-        assert!(src.rows == dst.rows && src.cols == dst.cols,
+        assert!(
+            src.rows == dst.rows && src.cols == dst.cols,
             "src and dst dimensions must match: src is {}x{}, dst is {}x{}",
-            src.rows, src.cols, dst.rows, dst.cols);
+            src.rows,
+            src.cols,
+            dst.rows,
+            dst.cols
+        );
         for i in 0..src.data.len() {
             dst.data[i] += src.data[i];
         }
@@ -109,9 +142,14 @@ impl Matrix {
 
     /// Accumulating subtract: dst[i] -= src[i]
     pub fn sub_into(src: &Matrix, dst: &mut Matrix) {
-        assert!(src.rows == dst.rows && src.cols == dst.cols,
+        assert!(
+            src.rows == dst.rows && src.cols == dst.cols,
             "src and dst dimensions must match: src is {}x{}, dst is {}x{}",
-            src.rows, src.cols, dst.rows, dst.cols);
+            src.rows,
+            src.cols,
+            dst.rows,
+            dst.cols
+        );
         for i in 0..src.data.len() {
             dst.data[i] -= src.data[i];
         }
@@ -119,9 +157,12 @@ impl Matrix {
 
     /// Dot product: Σ(a[i] * b[i])
     pub fn dot(a: &Matrix, b: &Matrix) -> f32 {
-        assert!(a.data.len() == b.data.len(),
+        assert!(
+            a.data.len() == b.data.len(),
             "dot product requires same length: a has {}, b has {}",
-            a.data.len(), b.data.len());
+            a.data.len(),
+            b.data.len()
+        );
         let mut sum = 0.0;
         for i in 0..a.data.len() {
             sum += a.data[i] * b.data[i];
@@ -138,12 +179,22 @@ impl Matrix {
         let b_rows = if transpose_b { b.cols } else { b.rows };
         let b_cols = if transpose_b { b.rows } else { b.cols };
 
-        assert!(a_cols == b_rows,
+        assert!(
+            a_cols == b_rows,
             "inner dimensions must match for multiplication: a is {}x{}, b is {}x{}",
-            a_rows, a_cols, b_rows, b_cols);
-        assert!(out.rows == a_rows && out.cols == b_cols,
+            a_rows,
+            a_cols,
+            b_rows,
+            b_cols
+        );
+        assert!(
+            out.rows == a_rows && out.cols == b_cols,
             "out dimensions must match result: expected {}x{}, got {}x{}",
-            a_rows, b_cols, out.rows, out.cols);
+            a_rows,
+            b_cols,
+            out.rows,
+            out.cols
+        );
 
         // Clear output buffer since inner loops use += to accumulate.
         // Without this, repeated calls would accumulate on previous results.
@@ -153,10 +204,10 @@ impl Matrix {
 
         // The match is more idiomatic Rust and makes the intent clearer without bit unpacking
         match (transpose_a, transpose_b) {
-            (false, false) => { Self::mul_nn(a, b, out) }
-            (false, true)  => { Self::mul_nt(a, b, out) }
-            (true, false)  => { Self::mul_tn(a, b, out) }
-            (true, true)   => { Self::mul_tt(a, b, out) }
+            (false, false) => Self::mul_nn(a, b, out),
+            (false, true) => Self::mul_nt(a, b, out),
+            (true, false) => Self::mul_tn(a, b, out),
+            (true, true) => Self::mul_tt(a, b, out),
         }
     }
 
@@ -165,9 +216,7 @@ impl Matrix {
         for i in 0..out.cols {
             for j in 0..out.rows {
                 for k in 0..a.cols {
-                    out.data[j + i * out.cols] +=
-                        a.data[k + i * a.cols] * 
-                        b.data[j + k * b.cols];
+                    out.data[j + i * out.cols] += a.data[k + i * a.cols] * b.data[j + k * b.cols];
                 }
             }
         }
@@ -176,41 +225,40 @@ impl Matrix {
         for i in 0..out.rows {
             for j in 0..out.cols {
                 for k in 0..a.cols {
-                    out.data[j + i * out.cols] +=
-                        a.data[k + i * a.cols] * 
-                        b.data[k + j * b.cols];
+                    out.data[j + i * out.cols] += a.data[k + i * a.cols] * b.data[k + j * b.cols];
                 }
             }
         }
     }
     fn mul_tn(a: &Matrix, b: &Matrix, out: &mut Matrix) {
-       for k in 0..a.rows {
+        for k in 0..a.rows {
             for i in 0..out.rows {
                 for j in 0..out.cols {
-                    out.data[j + i * out.cols] +=
-                        a.data[i + k * a.cols] * 
-                        b.data[j + k * b.cols];
+                    out.data[j + i * out.cols] += a.data[i + k * a.cols] * b.data[j + k * b.cols];
                 }
             }
-        } 
+        }
     }
     fn mul_tt(a: &Matrix, b: &Matrix, out: &mut Matrix) {
         for i in 0..out.rows {
             for j in 0..out.cols {
                 for k in 0..a.rows {
-                    out.data[j + i * out.cols] +=
-                        a.data[i + k * a.cols] * 
-                        b.data[k + j * b.cols];
+                    out.data[j + i * out.cols] += a.data[i + k * a.cols] * b.data[k + j * b.cols];
                 }
             }
         }
     }
 
     pub fn relu(a: &Matrix, out: &mut Matrix) {
-        assert!(a.rows == out.rows && a.cols == out.cols,
+        assert!(
+            a.rows == out.rows && a.cols == out.cols,
             "a and out dimensions must match: a is {}x{}, out is {}x{}",
-            a.rows, a.cols, out.rows, out.cols);
-        
+            a.rows,
+            a.cols,
+            out.rows,
+            out.cols
+        );
+
         for i in 0..a.data.len() {
             out.data[i] = a.data[i].max(0.0);
         }
@@ -219,9 +267,14 @@ impl Matrix {
     // TODO: compute softmax per row instead of entire matrix
     pub fn softmax(a: &Matrix, out: &mut Matrix) {
         // o_i = e^a_i / sum(e^a_j)
-        assert!(a.rows == out.rows && a.cols == out.cols,
+        assert!(
+            a.rows == out.rows && a.cols == out.cols,
             "a and out dimensions must match: a is {}x{}, out is {}x{}",
-            a.rows, a.cols, out.rows, out.cols);
+            a.rows,
+            a.cols,
+            out.rows,
+            out.cols
+        );
         let mut sum = 0.0;
         for i in 0..a.data.len() {
             out.data[i] = a.data[i].exp();
@@ -231,12 +284,22 @@ impl Matrix {
     }
 
     pub fn cross_entropy(p: &Matrix, q: &Matrix, out: &mut Matrix) {
-        assert!(p.rows == q.rows && p.cols == q.cols,
+        assert!(
+            p.rows == q.rows && p.cols == q.cols,
             "p and q dimensions must match: p is {}x{}, q is {}x{}",
-            p.rows, p.cols, q.rows, q.cols);
-        assert!(p.rows == out.rows && p.cols == out.cols,
+            p.rows,
+            p.cols,
+            q.rows,
+            q.cols
+        );
+        assert!(
+            p.rows == out.rows && p.cols == out.cols,
             "p and out dimensions must match: p is {}x{}, out is {}x{}",
-            p.rows, p.cols, out.rows, out.cols);
+            p.rows,
+            p.cols,
+            out.rows,
+            out.cols
+        );
 
         // TODO: maybe not technically correct
 
@@ -244,8 +307,7 @@ impl Matrix {
         for i in 0..out.data.len() {
             if p.data[i] == 0.0 {
                 out.data[i] = 0.0;
-            }
-            else {
+            } else {
                 out.data[i] = p.data[i] * -q.data[i].ln();
             }
         }
@@ -268,10 +330,7 @@ impl Matrix {
         let mut file = File::open(filename).expect("failed to open file");
 
         unsafe {
-            let buf = std::slice::from_raw_parts_mut(
-                data.as_mut_ptr() as *mut u8,
-                data.len() * 4
-            );
+            let buf = std::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u8, data.len() * 4);
             file.read_exact(buf).expect("failed to read file");
         }
         // let mut reader = BufReader::new(File::open(filename).expect("failed to open"));
@@ -284,7 +343,7 @@ impl Matrix {
 
         // assert_eq!(data.len(), rows * cols, "file size mismatch");
 
-        Self { rows, cols, data}
+        Self { rows, cols, data }
     }
 }
 
@@ -403,8 +462,16 @@ mod tests {
 
     #[test]
     fn test_dot() {
-        let a = Matrix { rows: 1, cols: 4, data: vec![1.0, 2.0, 3.0, 4.0] };
-        let b = Matrix { rows: 1, cols: 4, data: vec![2.0, 3.0, 4.0, 5.0] };
+        let a = Matrix {
+            rows: 1,
+            cols: 4,
+            data: vec![1.0, 2.0, 3.0, 4.0],
+        };
+        let b = Matrix {
+            rows: 1,
+            cols: 4,
+            data: vec![2.0, 3.0, 4.0, 5.0],
+        };
         // 1*2 + 2*3 + 3*4 + 4*5 = 2 + 6 + 12 + 20 = 40
         assert_eq!(Matrix::dot(&a, &b), 40.0);
     }
@@ -457,8 +524,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "inner dimensions must match for multiplication")]
     fn test_mul_mismatched_inner() {
-        let a = Matrix::zeros(2, 3);  // 2x3
-        let b = Matrix::zeros(4, 2);  // 4x2 - inner dims 3 != 4
+        let a = Matrix::zeros(2, 3); // 2x3
+        let b = Matrix::zeros(4, 2); // 4x2 - inner dims 3 != 4
         let mut out = Matrix::zeros(2, 2);
         Matrix::mul(&a, &b, &mut out, false, false);
     }
@@ -466,9 +533,9 @@ mod tests {
     #[test]
     #[should_panic(expected = "out dimensions must match result")]
     fn test_mul_mismatched_out() {
-        let a = Matrix::zeros(2, 3);  // 2x3
-        let b = Matrix::zeros(3, 4);  // 3x4 - result should be 2x4
-        let mut out = Matrix::zeros(2, 2);  // wrong size
+        let a = Matrix::zeros(2, 3); // 2x3
+        let b = Matrix::zeros(3, 4); // 3x4 - result should be 2x4
+        let mut out = Matrix::zeros(2, 2); // wrong size
         Matrix::mul(&a, &b, &mut out, false, false);
     }
 
@@ -476,8 +543,16 @@ mod tests {
     fn test_mul_nn() {
         // [1, 2]   [5, 6]   [1*5+2*7, 1*6+2*8]   [19, 22]
         // [3, 4] x [7, 8] = [3*5+4*7, 3*6+4*8] = [43, 50]
-        let a = Matrix { rows: 2, cols: 2, data: vec![1.0, 2.0, 3.0, 4.0] };
-        let b = Matrix { rows: 2, cols: 2, data: vec![5.0, 6.0, 7.0, 8.0] };
+        let a = Matrix {
+            rows: 2,
+            cols: 2,
+            data: vec![1.0, 2.0, 3.0, 4.0],
+        };
+        let b = Matrix {
+            rows: 2,
+            cols: 2,
+            data: vec![5.0, 6.0, 7.0, 8.0],
+        };
         let mut out = Matrix::zeros(2, 2);
         Matrix::mul(&a, &b, &mut out, false, false);
         assert_eq!(out.data, vec![19.0, 22.0, 43.0, 50.0]);
@@ -492,8 +567,16 @@ mod tests {
         // Result:
         // [1,2,3]·[7,8,9]   = 50    [1,2,3]·[10,11,12] = 68
         // [4,5,6]·[7,8,9]   = 122   [4,5,6]·[10,11,12] = 167
-        let a = Matrix { rows: 2, cols: 3, data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0] };
-        let b = Matrix { rows: 2, cols: 3, data: vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0] };
+        let a = Matrix {
+            rows: 2,
+            cols: 3,
+            data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        };
+        let b = Matrix {
+            rows: 2,
+            cols: 3,
+            data: vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+        };
         let mut out = Matrix::zeros(2, 2);
         Matrix::mul(&a, &b, &mut out, false, true);
         assert_eq!(out.data, vec![50.0, 68.0, 122.0, 167.0]);
@@ -509,8 +592,16 @@ mod tests {
         // [1,4]·[7,9]=43   [1,4]·[8,10]=48
         // [2,5]·[7,9]=59   [2,5]·[8,10]=66
         // [3,6]·[7,9]=75   [3,6]·[8,10]=84
-        let a = Matrix { rows: 2, cols: 3, data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0] };
-        let b = Matrix { rows: 2, cols: 2, data: vec![7.0, 8.0, 9.0, 10.0] };
+        let a = Matrix {
+            rows: 2,
+            cols: 3,
+            data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        };
+        let b = Matrix {
+            rows: 2,
+            cols: 2,
+            data: vec![7.0, 8.0, 9.0, 10.0],
+        };
         let mut out = Matrix::zeros(3, 2);
         Matrix::mul(&a, &b, &mut out, true, false);
         assert_eq!(out.data, vec![43.0, 48.0, 59.0, 66.0, 75.0, 84.0]);
@@ -526,16 +617,31 @@ mod tests {
         // [1,4]·[7,8]=39   [1,4]·[9,10]=49   [1,4]·[11,12]=59
         // [2,5]·[7,8]=54   [2,5]·[9,10]=68   [2,5]·[11,12]=82
         // [3,6]·[7,8]=69   [3,6]·[9,10]=87   [3,6]·[11,12]=105
-        let a = Matrix { rows: 2, cols: 3, data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0] };
-        let b = Matrix { rows: 3, cols: 2, data: vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0] };
+        let a = Matrix {
+            rows: 2,
+            cols: 3,
+            data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        };
+        let b = Matrix {
+            rows: 3,
+            cols: 2,
+            data: vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+        };
         let mut out = Matrix::zeros(3, 3);
         Matrix::mul(&a, &b, &mut out, true, true);
-        assert_eq!(out.data, vec![39.0, 49.0, 59.0, 54.0, 68.0, 82.0, 69.0, 87.0, 105.0]);
+        assert_eq!(
+            out.data,
+            vec![39.0, 49.0, 59.0, 54.0, 68.0, 82.0, 69.0, 87.0, 105.0]
+        );
     }
 
     #[test]
     fn test_relu() {
-        let a = Matrix { rows: 2, cols: 3, data: vec![-2.0, -1.0, 0.0, 1.0, 2.0, 3.0] };
+        let a = Matrix {
+            rows: 2,
+            cols: 3,
+            data: vec![-2.0, -1.0, 0.0, 1.0, 2.0, 3.0],
+        };
         let mut out = Matrix::zeros(2, 3);
         Matrix::relu(&a, &mut out);
         assert_eq!(out.data, vec![0.0, 0.0, 0.0, 1.0, 2.0, 3.0]);
@@ -544,7 +650,11 @@ mod tests {
     #[test]
     fn test_softmax() {
         // Single row for now (TODO: test per-row softmax later)
-        let a = Matrix { rows: 1, cols: 3, data: vec![1.0, 2.0, 3.0] };
+        let a = Matrix {
+            rows: 1,
+            cols: 3,
+            data: vec![1.0, 2.0, 3.0],
+        };
         let mut out = Matrix::zeros(1, 3);
         Matrix::softmax(&a, &mut out);
 
@@ -561,8 +671,16 @@ mod tests {
     fn test_cross_entropy() {
         // p = one-hot label (true class is 1)
         // q = predicted probabilities
-        let p = Matrix { rows: 1, cols: 3, data: vec![0.0, 1.0, 0.0] };
-        let q = Matrix { rows: 1, cols: 3, data: vec![0.1, 0.7, 0.2] };
+        let p = Matrix {
+            rows: 1,
+            cols: 3,
+            data: vec![0.0, 1.0, 0.0],
+        };
+        let q = Matrix {
+            rows: 1,
+            cols: 3,
+            data: vec![0.1, 0.7, 0.2],
+        };
         let mut out = Matrix::zeros(1, 3);
         Matrix::cross_entropy(&p, &q, &mut out);
 

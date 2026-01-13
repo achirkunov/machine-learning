@@ -13,7 +13,7 @@
 //! A ModelBuilder (not yet implemented) would construct the graph
 //! and guarantee topological ordering.
 
-use crate::matrix::{self, Matrix};
+use crate::matrix::Matrix;
 
 type VarId = u32;
 
@@ -148,13 +148,23 @@ impl ModelBuilder {
 
     fn add_var(&mut self, val: Matrix, grad: Option<Matrix>, op: Op, kind: VarKind) -> VarId {
         let id = self.vars.len() as VarId;
-        self.vars.push(Var { val, grad, op, kind });
+        self.vars.push(Var {
+            val,
+            grad,
+            op,
+            kind,
+        });
         id
     }
 
     fn push(&mut self, val: Matrix, grad: Option<Matrix>, op: Op, kind: VarKind) -> VarId {
         let id = self.vars.len() as VarId;
-        self.vars.push(Var { val, grad, op, kind});
+        self.vars.push(Var {
+            val,
+            grad,
+            op,
+            kind,
+        });
         id
     }
 
@@ -175,13 +185,7 @@ impl ModelBuilder {
     }
 
     /// Build the final model context
-    pub fn build(
-        self,
-        input: VarId,
-        output: VarId,
-        target: VarId,
-        loss: VarId,
-    ) -> ModelContext {
+    pub fn build(self, input: VarId, output: VarId, target: VarId, loss: VarId) -> ModelContext {
         // For now, forward_prog and cost_prog are all vars in order
         // (works because we build in topological order)
         let all_ids: Vec<VarId> = (0..self.vars.len() as VarId).collect();
@@ -196,17 +200,14 @@ impl ModelBuilder {
             cost_prog: all_ids,
         }
     }
-
-
 }
 
 impl ModelContext {
-
     // Copy data into input buffer
     pub fn set_input(&mut self, data: &Matrix) {
         // TODO: avoid copy_into?
         let input_idx = self.input as usize;
-        matrix::Matrix::copy_into(&data, &mut self.vars[input_idx].val);
+        Matrix::copy_into(data, &mut self.vars[input_idx].val);
     }
 
     /// Direct access to input buffer (for zero-copy data loading
@@ -218,7 +219,6 @@ impl ModelContext {
     pub fn output(&self) -> &Matrix {
         &self.vars[self.output as usize].val
     }
-
 
     pub fn forward(&mut self) {
         // TODO: we will need to compute topological order once at build time
@@ -241,7 +241,7 @@ impl ModelContext {
                 let src = &inputs[x as usize].val;
                 let dst = &mut outputs[0].val;
                 Matrix::relu(src, dst);
-            },
+            }
             Op::Add(a, b) => {
                 let (inputs, outputs) = self.vars.split_at_mut(idx);
                 let lhs = &inputs[a as usize].val;
@@ -283,18 +283,16 @@ impl ModelContext {
 
     pub fn zero_grad(&mut self) {
         for var in &mut self.vars {
-            match var.grad {
-                // ref mut: creates a mutable reference when pattern matching.
-                // Without it, Some(g) would try to move the Matrix out of the Option.
-                // With ref mut, g is &mut Matrix and we can modify it in place.
-                Some(ref mut g) => { g.clear(); }
-                None => {}
+            // ref mut: creates a mutable reference when pattern matching.
+            // Without it, Some(g) would try to move the Matrix out of the Option.
+            // With ref mut, g is &mut Matrix and we can modify it in place.
+            if let Some(ref mut g) = var.grad {
+                g.clear();
             }
         }
     }
 
     pub fn backward(&mut self) {
-
         // 0. Zero grads (why?)
         self.zero_grad();
 
@@ -303,7 +301,11 @@ impl ModelContext {
         //            (lets us get a mutable ref without moving ownership)
         // .unwrap(): extracts the inner value, panics if None
         //            (safe here because we know loss has a gradient)
-        self.vars[self.loss as usize].grad.as_mut().unwrap().fill(1.0);
+        self.vars[self.loss as usize]
+            .grad
+            .as_mut()
+            .unwrap()
+            .fill(1.0);
 
         // 2. Iterate in reverse topological order
         // We need to use .clone(), because Rust cannot tell than compute_grad doesn't modify forward_prog
@@ -340,7 +342,7 @@ impl ModelContext {
                 if let Some(ref mut grad_b) = inputs[b as usize].grad {
                     Matrix::add_into(current_grad, grad_b);
                 }
-            },
+            }
             Op::Sub(a, b) => {
                 let (inputs, current_and_rest) = self.vars.split_at_mut(idx);
                 let current_grad = current_and_rest[0].grad.as_ref().unwrap();
@@ -350,7 +352,7 @@ impl ModelContext {
                 if let Some(ref mut grad_b) = inputs[b as usize].grad {
                     Matrix::sub_into(current_grad, grad_b);
                 }
-            },
+            }
             Op::MatMul(a, b) => {
                 let (inputs, current_and_rest) = self.vars.split_at_mut(idx);
                 let current_grad = current_and_rest[0].grad.as_ref().unwrap();
@@ -409,7 +411,8 @@ impl ModelContext {
                 if let Some(ref mut grad_pred) = inputs[pred as usize].grad {
                     for i in 0..grad_pred.data.len() {
                         if pred_val.data[i] != 0.0 {
-                            grad_pred.data[i] += loss_grad * (-target_val.data[i] / pred_val.data[i]);
+                            grad_pred.data[i] +=
+                                loss_grad * (-target_val.data[i] / pred_val.data[i]);
                         }
                     }
                 }
@@ -417,7 +420,6 @@ impl ModelContext {
             }
         }
     }
-
 }
 
 #[cfg(test)]
@@ -501,18 +503,22 @@ mod tests {
         assert_eq!(model.input, 0);
         assert_eq!(model.output, 2);
         assert_eq!(model.target, 3);
-       
+
         assert_eq!(model.loss, 4);
     }
 
     #[test]
     fn test_compute_relu() {
         let mut b = ModelBuilder::new();
-        let x = b.input(2 ,3);
+        let x = b.input(2, 3);
         let y = b.relu(x);
         let mut m = b.build(x, y, x, y); // dummy
 
-        let a = Matrix { rows: 2, cols: 3, data: vec![-1.0, 2.0, -3.0, 4.0, -5.0, 6.0] };
+        let a = Matrix {
+            rows: 2,
+            cols: 3,
+            data: vec![-1.0, 2.0, -3.0, 4.0, -5.0, 6.0],
+        };
         let input = m.set_input(&a);
         m.forward();
 
@@ -529,8 +535,16 @@ mod tests {
         let mut m = b.build(x, z, x, z); // dummy target/loss
 
         // Set both inputs
-        m.vars[0].val = Matrix { rows: 2, cols: 3, data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0] };
-        m.vars[1].val = Matrix { rows: 2, cols: 3, data: vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0] };
+        m.vars[0].val = Matrix {
+            rows: 2,
+            cols: 3,
+            data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        };
+        m.vars[1].val = Matrix {
+            rows: 2,
+            cols: 3,
+            data: vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+        };
         m.forward();
 
         let out = m.output();
@@ -544,7 +558,11 @@ mod tests {
         let y = b.softmax(x);
         let mut m = b.build(x, y, x, y);
 
-        m.vars[0].val = Matrix { rows: 1, cols: 3, data: vec![1.0, 2.0, 3.0] };
+        m.vars[0].val = Matrix {
+            rows: 1,
+            cols: 3,
+            data: vec![1.0, 2.0, 3.0],
+        };
         m.forward();
 
         let out = m.output();
@@ -564,8 +582,16 @@ mod tests {
         let z = b.sub(x, y);
         let mut m = b.build(x, z, x, z);
 
-        m.vars[0].val = Matrix { rows: 2, cols: 3, data: vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0] };
-        m.vars[1].val = Matrix { rows: 2, cols: 3, data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0] };
+        m.vars[0].val = Matrix {
+            rows: 2,
+            cols: 3,
+            data: vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+        };
+        m.vars[1].val = Matrix {
+            rows: 2,
+            cols: 3,
+            data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        };
         m.forward();
 
         let out = m.output();
@@ -583,8 +609,16 @@ mod tests {
         // [1, 2, 3]   [7,  8]    [1*7+2*9+3*11, 1*8+2*10+3*12]   [58,  64]
         // [4, 5, 6] x [9, 10] =  [4*7+5*9+6*11, 4*8+5*10+6*12] = [139, 154]
         //             [11,12]
-        m.vars[0].val = Matrix { rows: 2, cols: 3, data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0] };
-        m.vars[1].val = Matrix { rows: 3, cols: 2, data: vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0] };
+        m.vars[0].val = Matrix {
+            rows: 2,
+            cols: 3,
+            data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        };
+        m.vars[1].val = Matrix {
+            rows: 3,
+            cols: 2,
+            data: vec![7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+        };
         m.forward();
 
         let out = m.output();
@@ -600,9 +634,17 @@ mod tests {
         let mut m = b.build(pred, pred, target, loss);
 
         // pred = softmax-like probabilities
-        m.vars[0].val = Matrix { rows: 1, cols: 3, data: vec![0.1, 0.7, 0.2] };
+        m.vars[0].val = Matrix {
+            rows: 1,
+            cols: 3,
+            data: vec![0.1, 0.7, 0.2],
+        };
         // target = one-hot (true class is index 1)
-        m.vars[1].val = Matrix { rows: 1, cols: 3, data: vec![0.0, 1.0, 0.0] };
+        m.vars[1].val = Matrix {
+            rows: 1,
+            cols: 3,
+            data: vec![0.0, 1.0, 0.0],
+        };
         m.forward();
 
         // Cross entropy = -sum(target * ln(pred)) = -ln(0.7) ≈ 0.357
@@ -615,24 +657,48 @@ mod tests {
     fn test_zero_grad() {
         let mut b = ModelBuilder::new();
         let x = b.input(1, 3);
-        let w = b.parameter(3, 2);  // has gradient
-        let y = b.matmul(x, w);     // has gradient
+        let w = b.parameter(3, 2); // has gradient
+        let y = b.matmul(x, w); // has gradient
         let mut m = b.build(x, y, x, y);
 
         // Set non-zero values in gradients
-        m.vars[1].grad.as_mut().unwrap().fill(5.0);  // w's grad
-        m.vars[2].grad.as_mut().unwrap().fill(3.0);  // y's grad
+        m.vars[1].grad.as_mut().unwrap().fill(5.0); // w's grad
+        m.vars[2].grad.as_mut().unwrap().fill(3.0); // y's grad
 
         // Verify they're non-zero
-        assert!(m.vars[1].grad.as_ref().unwrap().data.iter().all(|&v| v == 5.0));
-        assert!(m.vars[2].grad.as_ref().unwrap().data.iter().all(|&v| v == 3.0));
+        assert!(m.vars[1]
+            .grad
+            .as_ref()
+            .unwrap()
+            .data
+            .iter()
+            .all(|&v| v == 5.0));
+        assert!(m.vars[2]
+            .grad
+            .as_ref()
+            .unwrap()
+            .data
+            .iter()
+            .all(|&v| v == 3.0));
 
         // Zero gradients
         m.zero_grad();
 
         // Verify all gradients are zeroed
-        assert!(m.vars[1].grad.as_ref().unwrap().data.iter().all(|&v| v == 0.0));
-        assert!(m.vars[2].grad.as_ref().unwrap().data.iter().all(|&v| v == 0.0));
+        assert!(m.vars[1]
+            .grad
+            .as_ref()
+            .unwrap()
+            .data
+            .iter()
+            .all(|&v| v == 0.0));
+        assert!(m.vars[2]
+            .grad
+            .as_ref()
+            .unwrap()
+            .data
+            .iter()
+            .all(|&v| v == 0.0));
 
         // Input (x) should have no gradient
         assert!(m.vars[0].grad.is_none());
@@ -649,8 +715,16 @@ mod tests {
         let mut m = b.build(x, z, x, z); // z is both output and "loss"
 
         // Set values
-        m.vars[0].val = Matrix { rows: 2, cols: 3, data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0] };
-        m.vars[1].val = Matrix { rows: 2, cols: 3, data: vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6] };
+        m.vars[0].val = Matrix {
+            rows: 2,
+            cols: 3,
+            data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        };
+        m.vars[1].val = Matrix {
+            rows: 2,
+            cols: 3,
+            data: vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+        };
         m.forward();
 
         // backward() seeds z.grad with 1.0, then propagates
@@ -661,8 +735,11 @@ mod tests {
 
         // p.grad should be all 1.0 (gradient passed through unchanged from z)
         let p_grad = m.vars[1].grad.as_ref().unwrap();
-        assert!(p_grad.data.iter().all(|&v| v == 1.0),
-            "expected all 1.0, got {:?}", p_grad.data);
+        assert!(
+            p_grad.data.iter().all(|&v| v == 1.0),
+            "expected all 1.0, got {:?}",
+            p_grad.data
+        );
     }
 
     #[test]
@@ -670,15 +747,23 @@ mod tests {
         // Graph: z = p1 + p2, both are parameters
         // After backward, both p1.grad and p2.grad should equal 1.0
         let mut b = ModelBuilder::new();
-        let x = b.input(1, 1);  // dummy input required by build
+        let x = b.input(1, 1); // dummy input required by build
         let p1 = b.parameter(2, 2);
         let p2 = b.parameter(2, 2);
         let z = b.add(p1, p2);
         let mut m = b.build(x, z, x, z);
 
         // Set parameter values
-        m.vars[1].val = Matrix { rows: 2, cols: 2, data: vec![1.0, 2.0, 3.0, 4.0] };
-        m.vars[2].val = Matrix { rows: 2, cols: 2, data: vec![10.0, 20.0, 30.0, 40.0] };
+        m.vars[1].val = Matrix {
+            rows: 2,
+            cols: 2,
+            data: vec![1.0, 2.0, 3.0, 4.0],
+        };
+        m.vars[2].val = Matrix {
+            rows: 2,
+            cols: 2,
+            data: vec![10.0, 20.0, 30.0, 40.0],
+        };
         m.forward();
 
         m.backward();
@@ -686,10 +771,16 @@ mod tests {
         // Both parameters should have gradient = 1.0
         let p1_grad = m.vars[1].grad.as_ref().unwrap();
         let p2_grad = m.vars[2].grad.as_ref().unwrap();
-        assert!(p1_grad.data.iter().all(|&v| v == 1.0),
-            "p1 grad: expected all 1.0, got {:?}", p1_grad.data);
-        assert!(p2_grad.data.iter().all(|&v| v == 1.0),
-            "p2 grad: expected all 1.0, got {:?}", p2_grad.data);
+        assert!(
+            p1_grad.data.iter().all(|&v| v == 1.0),
+            "p1 grad: expected all 1.0, got {:?}",
+            p1_grad.data
+        );
+        assert!(
+            p2_grad.data.iter().all(|&v| v == 1.0),
+            "p2 grad: expected all 1.0, got {:?}",
+            p2_grad.data
+        );
     }
 
     #[test]
@@ -702,28 +793,44 @@ mod tests {
         // dL/dA = dL/dZ × B^T = [[1,1],[1,1]] × [[5,7],[6,8]] = [[11, 15], [11, 15]]
         // dL/dB = A^T × dL/dZ = [[1,3],[2,4]] × [[1,1],[1,1]] = [[4, 4], [6, 6]]
         let mut b = ModelBuilder::new();
-        let x = b.input(1, 1);  // dummy input
+        let x = b.input(1, 1); // dummy input
         let a = b.parameter(2, 2);
         let param_b = b.parameter(2, 2);
         let z = b.matmul(a, param_b);
         let mut m = b.build(x, z, x, z);
 
         // Set parameter values
-        m.vars[1].val = Matrix { rows: 2, cols: 2, data: vec![1.0, 2.0, 3.0, 4.0] };
-        m.vars[2].val = Matrix { rows: 2, cols: 2, data: vec![5.0, 6.0, 7.0, 8.0] };
+        m.vars[1].val = Matrix {
+            rows: 2,
+            cols: 2,
+            data: vec![1.0, 2.0, 3.0, 4.0],
+        };
+        m.vars[2].val = Matrix {
+            rows: 2,
+            cols: 2,
+            data: vec![5.0, 6.0, 7.0, 8.0],
+        };
         m.forward();
 
         m.backward();
 
         // dL/dA = [[11, 15], [11, 15]]
         let grad_a = m.vars[1].grad.as_ref().unwrap();
-        assert_eq!(grad_a.data, vec![11.0, 15.0, 11.0, 15.0],
-            "grad_a: expected [11, 15, 11, 15], got {:?}", grad_a.data);
+        assert_eq!(
+            grad_a.data,
+            vec![11.0, 15.0, 11.0, 15.0],
+            "grad_a: expected [11, 15, 11, 15], got {:?}",
+            grad_a.data
+        );
 
         // dL/dB = [[4, 4], [6, 6]]
         let grad_b = m.vars[2].grad.as_ref().unwrap();
-        assert_eq!(grad_b.data, vec![4.0, 4.0, 6.0, 6.0],
-            "grad_b: expected [4, 4, 6, 6], got {:?}", grad_b.data);
+        assert_eq!(
+            grad_b.data,
+            vec![4.0, 4.0, 6.0, 6.0],
+            "grad_b: expected [4, 4, 6, 6], got {:?}",
+            grad_b.data
+        );
     }
 
     #[test]
@@ -733,13 +840,17 @@ mod tests {
         // With dL/dy = [1, 1, 1, 1]:
         // dL/dp = [0, 1, 0, 1] (gradient blocked where input <= 0)
         let mut b = ModelBuilder::new();
-        let x = b.input(1, 1);  // dummy input
+        let x = b.input(1, 1); // dummy input
         let p = b.parameter(2, 2);
         let y = b.relu(p);
         let mut m = b.build(x, y, x, y);
 
         // Set parameter values (mix of positive and negative)
-        m.vars[1].val = Matrix { rows: 2, cols: 2, data: vec![-1.0, 2.0, -3.0, 4.0] };
+        m.vars[1].val = Matrix {
+            rows: 2,
+            cols: 2,
+            data: vec![-1.0, 2.0, -3.0, 4.0],
+        };
         m.forward();
 
         // Verify forward pass
@@ -749,8 +860,12 @@ mod tests {
 
         // dL/dp: gradient passes through where input > 0
         let grad_p = m.vars[1].grad.as_ref().unwrap();
-        assert_eq!(grad_p.data, vec![0.0, 1.0, 0.0, 1.0],
-            "grad_p: expected [0, 1, 0, 1], got {:?}", grad_p.data);
+        assert_eq!(
+            grad_p.data,
+            vec![0.0, 1.0, 0.0, 1.0],
+            "grad_p: expected [0, 1, 0, 1], got {:?}",
+            grad_p.data
+        );
     }
 
     #[test]
@@ -766,16 +881,24 @@ mod tests {
         //   dL/dp_2 = 0.665 · (0 - 0.090) ≈ -0.060
         let mut b = ModelBuilder::new();
         let dummy = b.input(1, 1);
-        let p = b.parameter(1, 3);       // input to softmax
-        let y = b.softmax(p);            // softmax output (1x3)
-        let w = b.parameter(3, 1);       // selector weights (3x1)
-        let z = b.matmul(y, w);          // scalar output (1x1)
+        let p = b.parameter(1, 3); // input to softmax
+        let y = b.softmax(p); // softmax output (1x3)
+        let w = b.parameter(3, 1); // selector weights (3x1)
+        let z = b.matmul(y, w); // scalar output (1x1)
         let mut m = b.build(dummy, z, dummy, z);
 
         // p = [1, 2, 3]
-        m.vars[1].val = Matrix { rows: 1, cols: 3, data: vec![1.0, 2.0, 3.0] };
+        m.vars[1].val = Matrix {
+            rows: 1,
+            cols: 3,
+            data: vec![1.0, 2.0, 3.0],
+        };
         // w = [1, 0, 0]^T selects first softmax output
-        m.vars[3].val = Matrix { rows: 3, cols: 1, data: vec![1.0, 0.0, 0.0] };
+        m.vars[3].val = Matrix {
+            rows: 3,
+            cols: 1,
+            data: vec![1.0, 0.0, 0.0],
+        };
 
         m.forward();
         m.backward();
@@ -784,7 +907,11 @@ mod tests {
 
         // Key property: softmax gradients sum to 0
         let sum: f32 = grad_p.data.iter().sum();
-        assert!(sum.abs() < 1e-6, "softmax grads should sum to 0, got {}", sum);
+        assert!(
+            sum.abs() < 1e-6,
+            "softmax grads should sum to 0, got {}",
+            sum
+        );
 
         // Increasing p[0] increases y[0], so grad should be positive
         // Increasing p[1] or p[2] decreases y[0], so grads should be negative
@@ -799,21 +926,33 @@ mod tests {
         // L = -ln(0.7) ≈ 0.357
         // dL/dpred = -target / pred = [0, -1/0.7, 0] ≈ [0, -1.4286, 0]
         let mut b = ModelBuilder::new();
-        let pred = b.parameter(1, 3);  // use parameter so it has gradient
-        let target = b.input(1, 3);    // labels, no gradient
+        let pred = b.parameter(1, 3); // use parameter so it has gradient
+        let target = b.input(1, 3); // labels, no gradient
         let loss = b.cross_entropy(pred, target);
         let mut m = b.build(target, loss, target, loss);
 
-        m.vars[0].val = Matrix { rows: 1, cols: 3, data: vec![0.1, 0.7, 0.2] };
-        m.vars[1].val = Matrix { rows: 1, cols: 3, data: vec![0.0, 1.0, 0.0] };
+        m.vars[0].val = Matrix {
+            rows: 1,
+            cols: 3,
+            data: vec![0.1, 0.7, 0.2],
+        };
+        m.vars[1].val = Matrix {
+            rows: 1,
+            cols: 3,
+            data: vec![0.0, 1.0, 0.0],
+        };
 
         m.forward();
 
         // Verify forward: L = -ln(0.7)
         let expected_loss = -(0.7_f32.ln());
         let actual_loss = m.vars[m.loss as usize].val.data[0];
-        assert!((actual_loss - expected_loss).abs() < 1e-6,
-            "loss: expected {}, got {}", expected_loss, actual_loss);
+        assert!(
+            (actual_loss - expected_loss).abs() < 1e-6,
+            "loss: expected {}, got {}",
+            expected_loss,
+            actual_loss
+        );
 
         m.backward();
 
@@ -821,8 +960,13 @@ mod tests {
         let grad_pred = m.vars[0].grad.as_ref().unwrap();
         let expected_grad = vec![0.0, -1.0 / 0.7, 0.0];
         for i in 0..3 {
-            assert!((grad_pred.data[i] - expected_grad[i]).abs() < 1e-6,
-                "grad[{}]: expected {}, got {}", i, expected_grad[i], grad_pred.data[i]);
+            assert!(
+                (grad_pred.data[i] - expected_grad[i]).abs() < 1e-6,
+                "grad[{}]: expected {}, got {}",
+                i,
+                expected_grad[i],
+                grad_pred.data[i]
+            );
         }
     }
 }
