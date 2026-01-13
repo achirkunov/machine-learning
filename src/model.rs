@@ -367,6 +367,20 @@ impl ModelContext {
                     Matrix::add_into(&temp, grad_b);
                 }
             }
+            Op::ReLU(x) => {
+                // dL/dx = dL/dy ⊙ (x > 0 ? 1 : 0)
+                // Gradient passes through where input was positive, zero otherwise
+                let (inputs, current_and_rest) = self.vars.split_at_mut(idx);
+                let current_grad = current_and_rest[0].grad.as_ref().unwrap();
+                let input_val = &inputs[x as usize].val;
+                if let Some(ref mut grad_x) = inputs[x as usize].grad {
+                    for i in 0..grad_x.data.len() {
+                        if input_val.data[i] > 0.0 {
+                            grad_x.data[i] += current_grad.data[i];
+                        }
+                    }
+                }
+            }
             _ => todo!()
         }
     }
@@ -677,5 +691,32 @@ mod tests {
         let grad_b = m.vars[2].grad.as_ref().unwrap();
         assert_eq!(grad_b.data, vec![4.0, 4.0, 6.0, 6.0],
             "grad_b: expected [4, 4, 6, 6], got {:?}", grad_b.data);
+    }
+
+    #[test]
+    fn test_backward_relu() {
+        // Graph: y = relu(p), where p is a parameter
+        // Input: [-1, 2, -3, 4] -> ReLU -> [0, 2, 0, 4]
+        // With dL/dy = [1, 1, 1, 1]:
+        // dL/dp = [0, 1, 0, 1] (gradient blocked where input <= 0)
+        let mut b = ModelBuilder::new();
+        let x = b.input(1, 1);  // dummy input
+        let p = b.parameter(2, 2);
+        let y = b.relu(p);
+        let mut m = b.build(x, y, x, y);
+
+        // Set parameter values (mix of positive and negative)
+        m.vars[1].val = Matrix { rows: 2, cols: 2, data: vec![-1.0, 2.0, -3.0, 4.0] };
+        m.forward();
+
+        // Verify forward pass
+        assert_eq!(m.output().data, vec![0.0, 2.0, 0.0, 4.0]);
+
+        m.backward();
+
+        // dL/dp: gradient passes through where input > 0
+        let grad_p = m.vars[1].grad.as_ref().unwrap();
+        assert_eq!(grad_p.data, vec![0.0, 1.0, 0.0, 1.0],
+            "grad_p: expected [0, 1, 0, 1], got {:?}", grad_p.data);
     }
 }
