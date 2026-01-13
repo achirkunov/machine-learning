@@ -117,6 +117,18 @@ impl Matrix {
         }
     }
 
+    /// Dot product: Σ(a[i] * b[i])
+    pub fn dot(a: &Matrix, b: &Matrix) -> f32 {
+        assert!(a.data.len() == b.data.len(),
+            "dot product requires same length: a has {}, b has {}",
+            a.data.len(), b.data.len());
+        let mut sum = 0.0;
+        for i in 0..a.data.len() {
+            sum += a.data[i] * b.data[i];
+        }
+        sum
+    }
+
     pub fn mul(a: &Matrix, b: &Matrix, out: &mut Matrix, transpose_a: bool, transpose_b: bool) {
         // The idea behind tranpose is to avoid transposing the matrix in memory
         // Instead we just change the indexing position
@@ -387,6 +399,14 @@ mod tests {
     fn test_sum() {
         let m = Matrix::full(2, 2, 3.0);
         assert_eq!(m.sum(), 12.0);
+    }
+
+    #[test]
+    fn test_dot() {
+        let a = Matrix { rows: 1, cols: 4, data: vec![1.0, 2.0, 3.0, 4.0] };
+        let b = Matrix { rows: 1, cols: 4, data: vec![2.0, 3.0, 4.0, 5.0] };
+        // 1*2 + 2*3 + 3*4 + 4*5 = 2 + 6 + 12 + 20 = 40
+        assert_eq!(Matrix::dot(&a, &b), 40.0);
     }
 
     #[test]

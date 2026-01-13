@@ -381,6 +381,23 @@ impl ModelContext {
                     }
                 }
             }
+            Op::Softmax(x) => {
+                // y_i = exp(x_i) / Σ exp(x_j)
+                // Jacobian: ∂y_i/∂x_j = y_i(δ_ij - y_j)
+                // Chain rule: dL/dx = y ⊙ (dL/dy - dot) where dot = Σ(dL/dy_i · y_i)
+                let (inputs, current_and_rest) = self.vars.split_at_mut(idx);
+                let current_grad = current_and_rest[0].grad.as_ref().unwrap(); // dL/dy
+                let y = &current_and_rest[0].val; // softmax output
+
+                if let Some(ref mut grad_x) = inputs[x as usize].grad {
+                    let dot = Matrix::dot(current_grad, y); // Σ(dL/dy_i · y_i)
+
+                    // dL/dx_j = y_j · (dL/dy_j - dot)
+                    for j in 0..grad_x.data.len() {
+                        grad_x.data[j] += y.data[j] * (current_grad.data[j] - dot);
+                    }
+                }
+            }
             _ => todo!()
         }
     }
@@ -718,5 +735,45 @@ mod tests {
         let grad_p = m.vars[1].grad.as_ref().unwrap();
         assert_eq!(grad_p.data, vec![0.0, 1.0, 0.0, 1.0],
             "grad_p: expected [0, 1, 0, 1], got {:?}", grad_p.data);
+    }
+
+    #[test]
+    fn test_backward_softmax() {
+        // Graph: p -> softmax -> y -> matmul(y, w) -> z (scalar)
+        // w = [1, 0, 0]^T selects first element, giving dL/dy = [1, 0, 0]
+        //
+        // With p = [1, 2, 3]:
+        //   y = softmax([1,2,3]) ≈ [0.090, 0.245, 0.665]
+        //   dot = Σ(dL/dy_i · y_i) = 1·0.090 + 0 + 0 = 0.090
+        //   dL/dp_0 = 0.090 · (1 - 0.090) ≈ +0.082
+        //   dL/dp_1 = 0.245 · (0 - 0.090) ≈ -0.022
+        //   dL/dp_2 = 0.665 · (0 - 0.090) ≈ -0.060
+        let mut b = ModelBuilder::new();
+        let dummy = b.input(1, 1);
+        let p = b.parameter(1, 3);       // input to softmax
+        let y = b.softmax(p);            // softmax output (1x3)
+        let w = b.parameter(3, 1);       // selector weights (3x1)
+        let z = b.matmul(y, w);          // scalar output (1x1)
+        let mut m = b.build(dummy, z, dummy, z);
+
+        // p = [1, 2, 3]
+        m.vars[1].val = Matrix { rows: 1, cols: 3, data: vec![1.0, 2.0, 3.0] };
+        // w = [1, 0, 0]^T selects first softmax output
+        m.vars[3].val = Matrix { rows: 3, cols: 1, data: vec![1.0, 0.0, 0.0] };
+
+        m.forward();
+        m.backward();
+
+        let grad_p = m.vars[1].grad.as_ref().unwrap();
+
+        // Key property: softmax gradients sum to 0
+        let sum: f32 = grad_p.data.iter().sum();
+        assert!(sum.abs() < 1e-6, "softmax grads should sum to 0, got {}", sum);
+
+        // Increasing p[0] increases y[0], so grad should be positive
+        // Increasing p[1] or p[2] decreases y[0], so grads should be negative
+        assert!(grad_p.data[0] > 0.0, "grad[0] should be positive");
+        assert!(grad_p.data[1] < 0.0, "grad[1] should be negative");
+        assert!(grad_p.data[2] < 0.0, "grad[2] should be negative");
     }
 }
