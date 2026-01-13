@@ -398,7 +398,23 @@ impl ModelContext {
                     }
                 }
             }
-            _ => todo!()
+            Op::CrossEntropy(pred, target) => {
+                // L = Σ(-target_i · ln(pred_i))
+                // dL/dpred_i = -target_i / pred_i
+                let (inputs, current_and_rest) = self.vars.split_at_mut(idx);
+                let loss_grad = current_and_rest[0].grad.as_ref().unwrap().data[0]; // scalar
+                let pred_val = &inputs[pred as usize].val;
+                let target_val = &inputs[target as usize].val;
+
+                if let Some(ref mut grad_pred) = inputs[pred as usize].grad {
+                    for i in 0..grad_pred.data.len() {
+                        if pred_val.data[i] != 0.0 {
+                            grad_pred.data[i] += loss_grad * (-target_val.data[i] / pred_val.data[i]);
+                        }
+                    }
+                }
+                // target is labels, typically no gradient needed
+            }
         }
     }
 
@@ -775,5 +791,38 @@ mod tests {
         assert!(grad_p.data[0] > 0.0, "grad[0] should be positive");
         assert!(grad_p.data[1] < 0.0, "grad[1] should be negative");
         assert!(grad_p.data[2] < 0.0, "grad[2] should be negative");
+    }
+
+    #[test]
+    fn test_backward_cross_entropy() {
+        // pred = [0.1, 0.7, 0.2], target = [0, 1, 0] (one-hot class 1)
+        // L = -ln(0.7) ≈ 0.357
+        // dL/dpred = -target / pred = [0, -1/0.7, 0] ≈ [0, -1.4286, 0]
+        let mut b = ModelBuilder::new();
+        let pred = b.parameter(1, 3);  // use parameter so it has gradient
+        let target = b.input(1, 3);    // labels, no gradient
+        let loss = b.cross_entropy(pred, target);
+        let mut m = b.build(target, loss, target, loss);
+
+        m.vars[0].val = Matrix { rows: 1, cols: 3, data: vec![0.1, 0.7, 0.2] };
+        m.vars[1].val = Matrix { rows: 1, cols: 3, data: vec![0.0, 1.0, 0.0] };
+
+        m.forward();
+
+        // Verify forward: L = -ln(0.7)
+        let expected_loss = -(0.7_f32.ln());
+        let actual_loss = m.vars[m.loss as usize].val.data[0];
+        assert!((actual_loss - expected_loss).abs() < 1e-6,
+            "loss: expected {}, got {}", expected_loss, actual_loss);
+
+        m.backward();
+
+        // dL/dpred = [0, -1/0.7, 0]
+        let grad_pred = m.vars[0].grad.as_ref().unwrap();
+        let expected_grad = vec![0.0, -1.0 / 0.7, 0.0];
+        for i in 0..3 {
+            assert!((grad_pred.data[i] - expected_grad[i]).abs() < 1e-6,
+                "grad[{}]: expected {}, got {}", i, expected_grad[i], grad_pred.data[i]);
+        }
     }
 }
