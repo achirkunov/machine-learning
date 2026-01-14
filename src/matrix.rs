@@ -213,8 +213,8 @@ impl Matrix {
 
     // Private helpers (no`pub`)
     fn mul_nn(a: &Matrix, b: &Matrix, out: &mut Matrix) {
-        for i in 0..out.cols {
-            for j in 0..out.rows {
+        for i in 0..out.rows {
+            for j in 0..out.cols {
                 for k in 0..a.cols {
                     out.data[j + i * out.cols] += a.data[k + i * a.cols] * b.data[j + k * b.cols];
                 }
@@ -556,6 +556,28 @@ mod tests {
         let mut out = Matrix::zeros(2, 2);
         Matrix::mul(&a, &b, &mut out, false, false);
         assert_eq!(out.data, vec![19.0, 22.0, 43.0, 50.0]);
+    }
+
+    #[test]
+    fn test_mul_nn_nonsquare() {
+        // Regression test: mul_nn had swapped loop bounds that only worked for square outputs
+        // (1x3) × (3x2) = (1x2)
+        // [1, 2, 3] × [4, 5]   = [1*4+2*6+3*8, 1*5+2*7+3*9] = [40, 46]
+        //             [6, 7]
+        //             [8, 9]
+        let a = Matrix {
+            rows: 1,
+            cols: 3,
+            data: vec![1.0, 2.0, 3.0],
+        };
+        let b = Matrix {
+            rows: 3,
+            cols: 2,
+            data: vec![4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+        };
+        let mut out = Matrix::zeros(1, 2);
+        Matrix::mul(&a, &b, &mut out, false, false);
+        assert_eq!(out.data, vec![40.0, 46.0]);
     }
 
     #[test]
