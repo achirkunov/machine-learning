@@ -17,16 +17,6 @@ use crate::matrix::Matrix;
 
 type VarId = u32;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum VarKind {
-    Input,
-    Parameter,
-    Intermediate,
-    Output,
-    DesiredOutput,
-    Cost,
-}
-
 #[derive(Clone, Copy, Debug)]
 enum Op {
     Input,
@@ -45,7 +35,6 @@ struct Var {
     val: Matrix,
     grad: Option<Matrix>, // None if !requires_grad, can you grad.is_some()
     op: Op,               // Op enum carriers inputs as indices
-    kind: VarKind,
 }
 
 type Program = Vec<VarId>;
@@ -68,12 +57,6 @@ pub struct ModelBuilder {
     vars: Vec<Var>,
 }
 
-pub struct ModelTrainingDesc {
-    epochs: u32,
-    batch_size: u32,
-    learning_rate: f32,
-}
-
 impl ModelBuilder {
     pub fn new() -> Self {
         Self { vars: Vec::new() }
@@ -81,7 +64,7 @@ impl ModelBuilder {
 
     /// Add an input variable (data fed from outside, no gradient)
     pub fn input(&mut self, rows: usize, cols: usize) -> VarId {
-        self.push(Matrix::zeros(rows, cols), None, Op::Input, VarKind::Input)
+        self.push(Matrix::zeros(rows, cols), None, Op::Input)
     }
 
     /// Add a trainable parameter (Xavier random init, has gradient)
@@ -91,7 +74,7 @@ impl ModelBuilder {
         let scale = (6.0 / (rows + cols) as f32).sqrt();
         let val = Matrix::rand_scaled(rows, cols, scale);
         let grad = Matrix::zeros(rows, cols);
-        self.push(val, Some(grad), Op::Parameter, VarKind::Parameter)
+        self.push(val, Some(grad), Op::Parameter)
     }
 
     /// Matrix multiplication: result = a @ b
@@ -102,23 +85,22 @@ impl ModelBuilder {
             Matrix::zeros(a_rows, b_cols),
             Some(Matrix::zeros(a_rows, b_cols)),
             Op::MatMul(a, b),
-            VarKind::Intermediate,
         )
     }
 
     /// ReLU activation
     pub fn relu(&mut self, x: VarId) -> VarId {
-        self.unary(x, Op::ReLU(x), VarKind::Intermediate)
+        self.unary(x, Op::ReLU(x))
     }
 
     /// Softmax activation
     pub fn softmax(&mut self, x: VarId) -> VarId {
-        self.unary(x, Op::Softmax(x), VarKind::Intermediate)
+        self.unary(x, Op::Softmax(x))
     }
 
     /// Cross-entropy loss
     pub fn cross_entropy(&mut self, pred: VarId, target: VarId) -> VarId {
-        self.push_with_grad(1, 1, Op::CrossEntropy(pred, target), VarKind::Cost)
+        self.push_with_grad(1, 1, Op::CrossEntropy(pred, target))
     }
 
     /// Element-wise addition: result = a + b
@@ -130,7 +112,6 @@ impl ModelBuilder {
             Matrix::zeros(rows, cols),
             Some(Matrix::zeros(rows, cols)),
             Op::Add(a, b),
-            VarKind::Intermediate,
         )
     }
 
@@ -143,46 +124,34 @@ impl ModelBuilder {
             Matrix::zeros(rows, cols),
             Some(Matrix::zeros(rows, cols)),
             Op::Sub(a, b),
-            VarKind::Intermediate,
         )
     }
 
-    fn add_var(&mut self, val: Matrix, grad: Option<Matrix>, op: Op, kind: VarKind) -> VarId {
+    fn add_var(&mut self, val: Matrix, grad: Option<Matrix>, op: Op) -> VarId {
         let id = self.vars.len() as VarId;
-        self.vars.push(Var {
-            val,
-            grad,
-            op,
-            kind,
-        });
+        self.vars.push(Var { val, grad, op });
         id
     }
 
-    fn push(&mut self, val: Matrix, grad: Option<Matrix>, op: Op, kind: VarKind) -> VarId {
+    fn push(&mut self, val: Matrix, grad: Option<Matrix>, op: Op) -> VarId {
         let id = self.vars.len() as VarId;
-        self.vars.push(Var {
-            val,
-            grad,
-            op,
-            kind,
-        });
+        self.vars.push(Var { val, grad, op });
         id
     }
 
-    fn push_with_grad(&mut self, rows: usize, cols: usize, op: Op, kind: VarKind) -> VarId {
+    fn push_with_grad(&mut self, rows: usize, cols: usize, op: Op) -> VarId {
         self.push(
             Matrix::zeros(rows, cols),
             Some(Matrix::zeros(rows, cols)),
             op,
-            kind,
         )
     }
 
-    fn unary(&mut self, x: VarId, op: Op, kind: VarKind) -> VarId {
+    fn unary(&mut self, x: VarId, op: Op) -> VarId {
         // unary ops preserve shape - the output of relu(x) has the same dimension as x
         let rows = self.vars[x as usize].val.rows;
         let cols = self.vars[x as usize].val.cols;
-        self.push_with_grad(rows, cols, op, kind)
+        self.push_with_grad(rows, cols, op)
     }
 
     /// Build the final model context
@@ -235,7 +204,7 @@ impl ModelContext {
     /// SGD update: param = param - learning_rate * grad
     pub fn sgd_step(&mut self, learning_rate: f32) {
         for var in &mut self.vars {
-            if var.kind == VarKind::Parameter {
+            if matches!(var.op, Op::Parameter) {
                 if let Some(ref grad) = var.grad {
                     for i in 0..var.val.data.len() {
                         var.val.data[i] -= learning_rate * grad.data[i];
@@ -489,18 +458,6 @@ mod tests {
             }
             _ => panic!("expected MatMul"),
         }
-    }
-
-    #[test]
-    fn var_kinds_are_correct() {
-        let mut b = ModelBuilder::new();
-        let x = b.input(1, 10);
-        let w = b.parameter(10, 5);
-        let y = b.matmul(x, w);
-
-        assert_eq!(b.vars[x as usize].kind, VarKind::Input);
-        assert_eq!(b.vars[w as usize].kind, VarKind::Parameter);
-        assert_eq!(b.vars[y as usize].kind, VarKind::Intermediate);
     }
 
     #[test]
