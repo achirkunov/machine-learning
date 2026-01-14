@@ -274,8 +274,15 @@ impl ModelContext {
     }
 
     pub fn backward(&mut self) {
-        // 0. Zero grads (why?)
-        self.zero_grad();
+        // Zero intermediate gradients (not parameters) so they don't accumulate
+        // across samples. Parameter gradients DO accumulate for batching.
+        for var in &mut self.vars {
+            if !matches!(var.op, Op::Parameter) {
+                if let Some(ref mut g) = var.grad {
+                    g.clear();
+                }
+            }
+        }
 
         // 1. Seed: dL/dLoss = 1.0
         // .as_mut(): converts Option<Matrix> to Option<&mut Matrix>

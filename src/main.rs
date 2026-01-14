@@ -101,11 +101,12 @@ fn main() {
     let mut m = b.build(x, probs, y, loss);
 
     // Training hyperparameters
-    let learning_rate = 0.01; // Reduced from 0.1 for stability
-    let epochs = 5;
+    let learning_rate = 0.01;
+    let batch_size = 50;
+    let epochs = 10;
     let print_every = 10000;
 
-    println!("Training for {} epochs with lr={}", epochs, learning_rate);
+    println!("Training for {} epochs with lr={}, batch_size={}", epochs, learning_rate, batch_size);
     println!("-------------------------------------------");
 
     let start = Instant::now();
@@ -116,34 +117,40 @@ fn main() {
     for epoch in 0..epochs {
         let mut total_loss = 0.0;
 
-        for i in 0..train_images.rows {
-            // Extract row i from training data
-            for j in 0..784 {
-                input_row.data[j] = train_images.data[i * 784 + j];
+        for batch_start in (0..train_images.rows).step_by(batch_size) {
+            let batch_end = (batch_start + batch_size).min(train_images.rows);
+
+            m.zero_grad();
+
+            for i in batch_start..batch_end {
+                // Extract row i from training data
+                for j in 0..784 {
+                    input_row.data[j] = train_images.data[i * 784 + j];
+                }
+                for j in 0..10 {
+                    label_row.data[j] = train_labels.data[i * 10 + j];
+                }
+
+                // Forward pass
+                m.set_input(&input_row);
+                m.set_target(&label_row);
+                m.forward();
+
+                total_loss += m.loss();
+
+                // Backward pass (accumulates gradients)
+                m.backward();
             }
-            for j in 0..10 {
-                label_row.data[j] = train_labels.data[i * 10 + j];
-            }
 
-            // Forward pass
-            m.set_input(&input_row);
-            m.set_target(&label_row);
-            m.forward();
+            // SGD update once per batch
+            m.sgd_step(learning_rate / batch_size as f32);
 
-            total_loss += m.loss();
-
-            // Backward pass
-            m.backward();
-
-            // SGD update
-            m.sgd_step(learning_rate);
-
-            if (i + 1) % print_every == 0 {
-                let avg_loss = total_loss / (i + 1) as f32;
+            if batch_end % print_every == 0 {
+                let avg_loss = total_loss / batch_end as f32;
                 println!(
                     "Epoch {} [{}/{}] avg_loss: {:.4}",
                     epoch + 1,
-                    i + 1,
+                    batch_end,
                     train_images.rows,
                     avg_loss
                 );
