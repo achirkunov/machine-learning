@@ -88,9 +88,14 @@ impl ModelBuilder {
         self.push(Matrix::zeros(rows, cols), None, Op::Input, VarKind::Input)
     }
 
-    /// Add a trainable parameter (random init, has gradient)
+    /// Add a trainable parameter (Xavier random init, has gradient)
+    /// TODO: move this to an init_parameters method with a selectable strategy + bias
     pub fn parameter(&mut self, rows: usize, cols: usize) -> VarId {
-        self.push_with_grad(rows, cols, Op::Parameter, VarKind::Parameter)
+        // Xavier initialization: scale = sqrt(6 / (fan_in + fan_out))
+        let scale = (6.0 / (rows + cols) as f32).sqrt();
+        let val = Matrix::rand_scaled(rows, cols, scale);
+        let grad = Matrix::zeros(rows, cols);
+        self.push(val, Some(grad), Op::Parameter, VarKind::Parameter)
     }
 
     /// Matrix multiplication: result = a @ b
@@ -210,6 +215,12 @@ impl ModelContext {
         Matrix::copy_into(data, &mut self.vars[input_idx].val);
     }
 
+    /// Set target labels for loss computation
+    pub fn set_target(&mut self, data: &Matrix) {
+        let target_idx = self.target as usize;
+        Matrix::copy_into(data, &mut self.vars[target_idx].val);
+    }
+
     /// Direct access to input buffer (for zero-copy data loading
     /// Callers who can write directly straight into buffer
     pub fn input_buffer_mut(&mut self) -> &mut Matrix {
@@ -218,6 +229,24 @@ impl ModelContext {
 
     pub fn output(&self) -> &Matrix {
         &self.vars[self.output as usize].val
+    }
+
+    /// Get the current loss value (scalar)
+    pub fn loss(&self) -> f32 {
+        self.vars[self.loss as usize].val.data[0]
+    }
+
+    /// SGD update: param = param - learning_rate * grad
+    pub fn sgd_step(&mut self, learning_rate: f32) {
+        for var in &mut self.vars {
+            if var.kind == VarKind::Parameter {
+                if let Some(ref grad) = var.grad {
+                    for i in 0..var.val.data.len() {
+                        var.val.data[i] -= learning_rate * grad.data[i];
+                    }
+                }
+            }
+        }
     }
 
     pub fn forward(&mut self) {
