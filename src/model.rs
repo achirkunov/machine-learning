@@ -153,7 +153,7 @@ impl ModelBuilder {
             target,
             loss,
             forward_prog: all_ids.clone(),
-            cost_prog: all_ids,
+            cost_prog: all_ids.clone(),
         }
     }
 }
@@ -201,9 +201,10 @@ impl ModelContext {
     }
 
     pub fn forward(&mut self) {
-        // TODO: we will need to compute topological order once at build time
-        // TODO: I don't like clone, is there a better way?
-        for &id in &self.forward_prog.clone() {
+        // We needed to avoid .clone() since this will be run every time during training
+        // Allocations savings are small but real
+        for i in 0..self.forward_prog.len() {
+            let id = self.forward_prog[i];
             self.compute(id);
         }
     }
@@ -288,8 +289,10 @@ impl ModelContext {
             .fill(1.0);
 
         // 2. Iterate in reverse topological order
-        // We need to use .clone(), because Rust cannot tell than compute_grad doesn't modify forward_prog
-        for &id in self.forward_prog.clone().iter().rev() {
+        // We needed to use .clone(), because Rust cannot tell than compute_grad doesn't modify forward_prog
+        // But then we removed .clone() to avoid allocation memory on every pass
+        for i in (0..self.forward_prog.len()).rev() {
+            let id = self.forward_prog[i];
             self.compute_grad(id);
         }
     }

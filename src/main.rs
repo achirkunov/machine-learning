@@ -3,6 +3,7 @@ mod model;
 
 use matrix::Matrix;
 use model::ModelBuilder;
+use std::time::Instant;
 
 fn draw_mnist_digit(data: &[f32]) {
     for y in 0..28 {
@@ -14,6 +15,54 @@ fn draw_mnist_digit(data: &[f32]) {
         println!();
     }
     print!("\x1b[0m");
+}
+
+/// Compute accuracy: fraction of correct predictions
+fn compute_accuracy(model: &mut model::ModelContext, images: &Matrix, labels: &Matrix) -> f32 {
+    let n = images.rows;
+    let mut correct = 0;
+
+    let mut input_row = Matrix::zeros(1, 784);
+    let mut label_row = Matrix::zeros(1, 10);
+
+    for i in 0..n {
+        // Extract row i
+        for j in 0..784 {
+            input_row.data[j] = images.data[i * 784 + j];
+        }
+        for j in 0..10 {
+            label_row.data[j] = labels.data[i * 10 + j];
+        }
+
+        model.set_input(&input_row);
+        model.set_target(&label_row);
+        model.forward();
+
+        // Get predicted class (argmax of output)
+        let output = model.output();
+        let pred = output
+            .data
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(idx, _)| idx)
+            .unwrap();
+
+        // Get true class (argmax of label)
+        let truth = label_row
+            .data
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(idx, _)| idx)
+            .unwrap();
+
+        if pred == truth {
+            correct += 1;
+        }
+    }
+
+    correct as f32 / n as f32
 }
 
 fn main() {
@@ -47,14 +96,87 @@ fn main() {
     for i in 0..10 {
         print!("{} ", train_labels.data[image_idx * 10 + i]);
     }
+    println!("\n");
 
+    // Build model: input -> matmul -> softmax -> cross_entropy
     let mut b = ModelBuilder::new();
-    let x = b.input(1, 784); // 0
-    let w = b.parameter(784, 10); // 1
-    let logits = b.matmul(x, w); // 2
-    let y = b.input(1, 10); // 3
-    let loss = b.cross_entropy(logits, y); // 4
+    let x = b.input(1, 784);
+    let w = b.parameter(784, 10);
+    let logits = b.matmul(x, w);
+    let probs = b.softmax(logits); // Added softmax!
+    let y = b.input(1, 10);
+    let loss = b.cross_entropy(probs, y);
 
-    let mut m = b.build(x, logits, y, loss);
-    m.forward();
+    let mut m = b.build(x, probs, y, loss);
+
+    // Training hyperparameters
+    let learning_rate = 0.01; // Reduced from 0.1 for stability
+    let epochs = 5;
+    let print_every = 10000;
+
+    println!("Training for {} epochs with lr={}", epochs, learning_rate);
+    println!("-------------------------------------------");
+
+    let start = Instant::now();
+
+    let mut input_row = Matrix::zeros(1, 784);
+    let mut label_row = Matrix::zeros(1, 10);
+
+    for epoch in 0..epochs {
+        let mut total_loss = 0.0;
+
+        for i in 0..train_images.rows {
+            // Extract row i from training data
+            for j in 0..784 {
+                input_row.data[j] = train_images.data[i * 784 + j];
+            }
+            for j in 0..10 {
+                label_row.data[j] = train_labels.data[i * 10 + j];
+            }
+
+            // Forward pass
+            m.set_input(&input_row);
+            m.set_target(&label_row);
+            m.forward();
+
+            total_loss += m.loss();
+
+            // Backward pass
+            m.backward();
+
+            // SGD update
+            m.sgd_step(learning_rate);
+
+            if (i + 1) % print_every == 0 {
+                let avg_loss = total_loss / (i + 1) as f32;
+                println!(
+                    "Epoch {} [{}/{}] avg_loss: {:.4}",
+                    epoch + 1,
+                    i + 1,
+                    train_images.rows,
+                    avg_loss
+                );
+            }
+        }
+
+        let avg_loss = total_loss / train_images.rows as f32;
+        let test_acc = compute_accuracy(&mut m, &test_images, &test_labels);
+        println!(
+            "Epoch {} complete - avg_loss: {:.4}, test_acc: {:.2}%",
+            epoch + 1,
+            avg_loss,
+            test_acc * 100.0
+        );
+        println!("-------------------------------------------");
+    }
+
+    let elapsed = start.elapsed();
+
+    // Final evaluation
+    let train_acc = compute_accuracy(&mut m, &train_images, &train_labels);
+    let test_acc = compute_accuracy(&mut m, &test_images, &test_labels);
+    println!("\nFinal Results:");
+    println!("  Train accuracy: {:.2}%", train_acc * 100.0);
+    println!("  Test accuracy:  {:.2}%", test_acc * 100.0);
+    println!("  Training time:  {:.2}s", elapsed.as_secs_f32());
 }
