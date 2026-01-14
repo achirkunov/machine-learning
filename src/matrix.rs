@@ -313,6 +313,17 @@ impl Matrix {
         }
     }
 
+    pub fn argmax(m: &Matrix) -> usize {
+        let size = m.rows * m.cols;
+        let mut max_i = 0;
+        for i in 1..size {
+            if m.data[i] > m.data[max_i] {
+                max_i = i;
+            }
+        }
+        return max_i;
+    }
+
     pub fn load(rows: usize, cols: usize, filename: &str) -> Self {
         // expect unwraps a Result or Option
         // let bytes = fs::read(filename).expect("failed to read file: {filename");
@@ -717,5 +728,40 @@ mod tests {
         // Cross-entropy loss = sum ≈ 0.357
         let loss = out.sum();
         assert!((loss - (-0.7_f32.ln())).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_argmax() {
+        // Max in the middle
+        let a = Matrix {
+            rows: 1,
+            cols: 4,
+            data: vec![1.0, 5.0, 3.0, 2.0],
+        };
+        assert_eq!(Matrix::argmax(&a), 1);
+
+        // Max at the beginning
+        let b = Matrix {
+            rows: 1,
+            cols: 3,
+            data: vec![9.0, 2.0, 1.0],
+        };
+        assert_eq!(Matrix::argmax(&b), 0);
+
+        // Max at the end
+        let c = Matrix {
+            rows: 1,
+            cols: 3,
+            data: vec![1.0, 2.0, 7.0],
+        };
+        assert_eq!(Matrix::argmax(&c), 2);
+
+        // 2D matrix - returns global argmax
+        let d = Matrix {
+            rows: 2,
+            cols: 3,
+            data: vec![1.0, 2.0, 3.0, 4.0, 8.0, 6.0],
+        };
+        assert_eq!(Matrix::argmax(&d), 4); // index 4 has value 8.0
     }
 }
