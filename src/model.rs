@@ -48,10 +48,6 @@ struct Var {
     kind: VarKind,
 }
 
-// struct Tape {
-//     vars: Vec<Var>,
-// }
-
 type Program = Vec<VarId>;
 
 pub struct ModelContext {
@@ -731,6 +727,40 @@ mod tests {
 
         // Input (x) should have no gradient
         assert!(m.vars[0].grad.is_none());
+    }
+
+    #[test]
+    fn test_sgd_step() {
+        // param = param - learning_rate * grad
+        let mut b = ModelBuilder::new();
+        let x = b.input(1, 2);
+        let p = b.parameter(2, 2);
+        let y = b.matmul(x, p);
+        let mut m = b.build(x, y, x, y);
+
+        // Set parameter values to known state
+        m.vars[1].val.data = vec![1.0, 2.0, 3.0, 4.0];
+        // Set gradients
+        m.vars[1].grad.as_mut().unwrap().data = vec![0.5, 1.0, 1.5, 2.0];
+
+        let lr = 0.1;
+        m.sgd_step(lr);
+
+        // Expected: [1.0 - 0.1*0.5, 2.0 - 0.1*1.0, 3.0 - 0.1*1.5, 4.0 - 0.1*2.0]
+        //         = [0.95, 1.9, 2.85, 3.8]
+        let expected = vec![0.95, 1.9, 2.85, 3.8];
+        for (i, (&actual, &exp)) in m.vars[1].val.data.iter().zip(expected.iter()).enumerate() {
+            assert!(
+                (actual - exp).abs() < 1e-6,
+                "param[{}]: expected {}, got {}",
+                i,
+                exp,
+                actual
+            );
+        }
+
+        // Input should be unchanged (no gradient)
+        // Intermediate (y) should be unchanged (not a parameter)
     }
 
     #[test]
