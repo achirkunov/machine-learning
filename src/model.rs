@@ -64,7 +64,7 @@ impl ModelBuilder {
 
     /// Add an input variable (data fed from outside, no gradient)
     pub fn input(&mut self, rows: usize, cols: usize) -> VarId {
-        self.push(Matrix::zeros(rows, cols), None, Op::Input)
+        self.add_var(Matrix::zeros(rows, cols), None, Op::Input )
     }
 
     /// Add a trainable parameter (Xavier random init, has gradient)
@@ -74,18 +74,7 @@ impl ModelBuilder {
         let scale = (6.0 / (rows + cols) as f32).sqrt();
         let val = Matrix::rand_scaled(rows, cols, scale);
         let grad = Matrix::zeros(rows, cols);
-        self.push(val, Some(grad), Op::Parameter)
-    }
-
-    /// Matrix multiplication: result = a @ b
-    pub fn matmul(&mut self, a: VarId, b: VarId) -> VarId {
-        let a_rows = self.vars[a as usize].val.rows;
-        let b_cols = self.vars[b as usize].val.cols;
-        self.add_var(
-            Matrix::zeros(a_rows, b_cols),
-            Some(Matrix::zeros(a_rows, b_cols)),
-            Op::MatMul(a, b),
-        )
+        self.add_var(val, Some(grad), Op::Parameter)
     }
 
     /// ReLU activation
@@ -100,7 +89,7 @@ impl ModelBuilder {
 
     /// Cross-entropy loss
     pub fn cross_entropy(&mut self, pred: VarId, target: VarId) -> VarId {
-        self.push_with_grad(1, 1, Op::CrossEntropy(pred, target))
+        self.binary(1, 1, Op::CrossEntropy(pred, target))
     }
 
     /// Element-wise addition: result = a + b
@@ -108,11 +97,7 @@ impl ModelBuilder {
         let rows = self.vars[a as usize].val.rows;
         let cols = self.vars[a as usize].val.cols;
         // TODO: assert a and b have same shape
-        self.add_var(
-            Matrix::zeros(rows, cols),
-            Some(Matrix::zeros(rows, cols)),
-            Op::Add(a, b),
-        )
+        self.binary(rows, cols, Op::Add(a, b))
     }
 
     /// Element-wise subtraction: result = a - b
@@ -120,11 +105,14 @@ impl ModelBuilder {
         let rows = self.vars[a as usize].val.rows;
         let cols = self.vars[a as usize].val.cols;
         // TODO: assert a and b have same shape
-        self.add_var(
-            Matrix::zeros(rows, cols),
-            Some(Matrix::zeros(rows, cols)),
-            Op::Sub(a, b),
-        )
+        self.binary(rows, cols, Op::Sub(a, b))
+    }
+
+    /// Matrix multiplication: result = a @ b
+    pub fn matmul(&mut self, a: VarId, b: VarId) -> VarId {
+        let a_rows = self.vars[a as usize].val.rows;
+        let b_cols = self.vars[b as usize].val.cols;
+        self.binary(a_rows, b_cols, Op::MatMul(a, b))
     }
 
     fn add_var(&mut self, val: Matrix, grad: Option<Matrix>, op: Op) -> VarId {
@@ -133,25 +121,23 @@ impl ModelBuilder {
         id
     }
 
-    fn push(&mut self, val: Matrix, grad: Option<Matrix>, op: Op) -> VarId {
-        let id = self.vars.len() as VarId;
-        self.vars.push(Var { val, grad, op });
-        id
-    }
-
-    fn push_with_grad(&mut self, rows: usize, cols: usize, op: Op) -> VarId {
-        self.push(
+    fn unary(&mut self, x: VarId, op: Op) -> VarId {
+        // unary ops preserve shape - the output of relu(x) has the same dimension as x
+        let rows = self.vars[x as usize].val.rows;
+        let cols = self.vars[x as usize].val.cols;
+        self.add_var(
             Matrix::zeros(rows, cols),
             Some(Matrix::zeros(rows, cols)),
             op,
         )
     }
 
-    fn unary(&mut self, x: VarId, op: Op) -> VarId {
-        // unary ops preserve shape - the output of relu(x) has the same dimension as x
-        let rows = self.vars[x as usize].val.rows;
-        let cols = self.vars[x as usize].val.cols;
-        self.push_with_grad(rows, cols, op)
+    fn binary(&mut self, rows: usize, cols: usize, op: Op) -> VarId {
+        self.add_var(
+            Matrix::zeros(rows, cols),
+            Some(Matrix::zeros(rows, cols)),
+            op,
+        )
     }
 
     /// Build the final model context
