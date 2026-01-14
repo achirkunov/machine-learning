@@ -15,7 +15,7 @@
 
 use crate::matrix::Matrix;
 
-type VarId = u32;
+type VarId = usize;
 
 #[derive(Clone, Copy, Debug)]
 enum Op {
@@ -94,37 +94,37 @@ impl ModelBuilder {
 
     /// Element-wise addition: result = a + b
     pub fn add(&mut self, a: VarId, b: VarId) -> VarId {
-        let rows = self.vars[a as usize].val.rows;
-        let cols = self.vars[a as usize].val.cols;
+        let rows = self.vars[a].val.rows;
+        let cols = self.vars[a].val.cols;
         // TODO: assert a and b have same shape
         self.binary(rows, cols, Op::Add(a, b))
     }
 
     /// Element-wise subtraction: result = a - b
     pub fn sub(&mut self, a: VarId, b: VarId) -> VarId {
-        let rows = self.vars[a as usize].val.rows;
-        let cols = self.vars[a as usize].val.cols;
+        let rows = self.vars[a].val.rows;
+        let cols = self.vars[a].val.cols;
         // TODO: assert a and b have same shape
         self.binary(rows, cols, Op::Sub(a, b))
     }
 
     /// Matrix multiplication: result = a @ b
     pub fn matmul(&mut self, a: VarId, b: VarId) -> VarId {
-        let a_rows = self.vars[a as usize].val.rows;
-        let b_cols = self.vars[b as usize].val.cols;
+        let a_rows = self.vars[a].val.rows;
+        let b_cols = self.vars[b].val.cols;
         self.binary(a_rows, b_cols, Op::MatMul(a, b))
     }
 
     fn add_var(&mut self, val: Matrix, grad: Option<Matrix>, op: Op) -> VarId {
-        let id = self.vars.len() as VarId;
+        let id = self.vars.len();
         self.vars.push(Var { val, grad, op });
         id
     }
 
     fn unary(&mut self, x: VarId, op: Op) -> VarId {
         // unary ops preserve shape - the output of relu(x) has the same dimension as x
-        let rows = self.vars[x as usize].val.rows;
-        let cols = self.vars[x as usize].val.cols;
+        let rows = self.vars[x].val.rows;
+        let cols = self.vars[x].val.cols;
         self.add_var(
             Matrix::zeros(rows, cols),
             Some(Matrix::zeros(rows, cols)),
@@ -144,7 +144,7 @@ impl ModelBuilder {
     pub fn build(self, input: VarId, output: VarId, target: VarId, loss: VarId) -> ModelContext {
         // For now, forward_prog and cost_prog are all vars in order
         // (works because we build in topological order)
-        let all_ids: Vec<VarId> = (0..self.vars.len() as VarId).collect();
+        let all_ids: Vec<VarId> = (0..self.vars.len()).collect();
 
         ModelContext {
             vars: self.vars,
@@ -175,16 +175,16 @@ impl ModelContext {
     /// Direct access to input buffer (for zero-copy data loading
     /// Callers who can write directly straight into buffer
     pub fn input_buffer_mut(&mut self) -> &mut Matrix {
-        &mut self.vars[self.input as usize].val
+        &mut self.vars[self.input].val
     }
 
     pub fn output(&self) -> &Matrix {
-        &self.vars[self.output as usize].val
+        &self.vars[self.output].val
     }
 
     /// Get the current loss value (scalar)
     pub fn loss(&self) -> f32 {
-        self.vars[self.loss as usize].val.data[0]
+        self.vars[self.loss].val.data[0]
     }
 
     /// SGD update: param = param - learning_rate * grad
@@ -218,41 +218,41 @@ impl ModelContext {
             Op::ReLU(x) => {
                 // Topological order ensure inputs < output index
                 let (inputs, outputs) = self.vars.split_at_mut(idx);
-                let src = &inputs[x as usize].val;
+                let src = &inputs[x].val;
                 let dst = &mut outputs[0].val;
                 Matrix::relu(src, dst);
             }
             Op::Add(a, b) => {
                 let (inputs, outputs) = self.vars.split_at_mut(idx);
-                let lhs = &inputs[a as usize].val;
-                let rhs = &inputs[b as usize].val;
+                let lhs = &inputs[a].val;
+                let rhs = &inputs[b].val;
                 let out = &mut outputs[0].val;
                 Matrix::add(lhs, rhs, out);
             }
             Op::Softmax(x) => {
                 let (inputs, outputs) = self.vars.split_at_mut(idx);
-                let src = &inputs[x as usize].val;
+                let src = &inputs[x].val;
                 let dst = &mut outputs[0].val;
                 Matrix::softmax(src, dst);
             }
             Op::Sub(a, b) => {
                 let (inputs, outputs) = self.vars.split_at_mut(idx);
-                let lhs = &inputs[a as usize].val;
-                let rhs = &inputs[b as usize].val;
+                let lhs = &inputs[a].val;
+                let rhs = &inputs[b].val;
                 let out = &mut outputs[0].val;
                 Matrix::sub(lhs, rhs, out);
             }
             Op::MatMul(a, b) => {
                 let (inputs, outputs) = self.vars.split_at_mut(idx);
-                let lhs = &inputs[a as usize].val;
-                let rhs = &inputs[b as usize].val;
+                let lhs = &inputs[a].val;
+                let rhs = &inputs[b].val;
                 let out = &mut outputs[0].val;
                 Matrix::mul(lhs, rhs, out, false, false);
             }
             Op::CrossEntropy(pred, target) => {
                 let (inputs, outputs) = self.vars.split_at_mut(idx);
-                let p = &inputs[pred as usize].val;
-                let t = &inputs[target as usize].val;
+                let p = &inputs[pred].val;
+                let t = &inputs[target].val;
                 // Cross entropy output is 1x1 scalar, sum element-wise results
                 let mut temp = Matrix::zeros(p.rows, p.cols);
                 Matrix::cross_entropy(t, p, &mut temp);
@@ -281,7 +281,7 @@ impl ModelContext {
         //            (lets us get a mutable ref without moving ownership)
         // .unwrap(): extracts the inner value, panics if None
         //            (safe here because we know loss has a gradient)
-        self.vars[self.loss as usize]
+        self.vars[self.loss]
             .grad
             .as_mut()
             .unwrap()
@@ -316,34 +316,34 @@ impl ModelContext {
                 let current_grad = current_and_rest[0].grad.as_ref().unwrap();
 
                 // ref mut in pattern: creates &mut Matrix without moving out of Option
-                if let Some(ref mut grad_a) = inputs[a as usize].grad {
+                if let Some(ref mut grad_a) = inputs[a].grad {
                     Matrix::add_into(current_grad, grad_a);
                 }
-                if let Some(ref mut grad_b) = inputs[b as usize].grad {
+                if let Some(ref mut grad_b) = inputs[b].grad {
                     Matrix::add_into(current_grad, grad_b);
                 }
             }
             Op::Sub(a, b) => {
                 let (inputs, current_and_rest) = self.vars.split_at_mut(idx);
                 let current_grad = current_and_rest[0].grad.as_ref().unwrap();
-                if let Some(ref mut grad_a) = inputs[a as usize].grad {
+                if let Some(ref mut grad_a) = inputs[a].grad {
                     Matrix::add_into(current_grad, grad_a);
                 }
-                if let Some(ref mut grad_b) = inputs[b as usize].grad {
+                if let Some(ref mut grad_b) = inputs[b].grad {
                     Matrix::sub_into(current_grad, grad_b);
                 }
             }
             Op::MatMul(a, b) => {
                 let (inputs, current_and_rest) = self.vars.split_at_mut(idx);
                 let current_grad = current_and_rest[0].grad.as_ref().unwrap();
-                let a_mat = &inputs[a as usize].val; // we need the ref?
-                let b_mat = &inputs[b as usize].val;
-                if let Some(ref mut grad_a) = inputs[a as usize].grad {
+                let a_mat = &inputs[a].val; // we need the ref?
+                let b_mat = &inputs[b].val;
+                if let Some(ref mut grad_a) = inputs[a].grad {
                     let mut temp = Matrix::zeros(grad_a.rows, grad_a.cols);
                     Matrix::mul(current_grad, b_mat, &mut temp, false, true);
                     Matrix::add_into(&temp, grad_a);
                 }
-                if let Some(ref mut grad_b) = inputs[b as usize].grad {
+                if let Some(ref mut grad_b) = inputs[b].grad {
                     let mut temp = Matrix::zeros(grad_b.rows, grad_b.cols);
                     Matrix::mul(a_mat, current_grad, &mut temp, true, false);
                     Matrix::add_into(&temp, grad_b);
@@ -354,8 +354,8 @@ impl ModelContext {
                 // Gradient passes through where input was positive, zero otherwise
                 let (inputs, current_and_rest) = self.vars.split_at_mut(idx);
                 let current_grad = current_and_rest[0].grad.as_ref().unwrap();
-                let input_val = &inputs[x as usize].val;
-                if let Some(ref mut grad_x) = inputs[x as usize].grad {
+                let input_val = &inputs[x].val;
+                if let Some(ref mut grad_x) = inputs[x].grad {
                     for i in 0..grad_x.data.len() {
                         if input_val.data[i] > 0.0 {
                             grad_x.data[i] += current_grad.data[i];
@@ -371,7 +371,7 @@ impl ModelContext {
                 let current_grad = current_and_rest[0].grad.as_ref().unwrap(); // dL/dy
                 let y = &current_and_rest[0].val; // softmax output
 
-                if let Some(ref mut grad_x) = inputs[x as usize].grad {
+                if let Some(ref mut grad_x) = inputs[x].grad {
                     let dot = Matrix::dot(current_grad, y); // Σ(dL/dy_i · y_i)
 
                     // dL/dx_j = y_j · (dL/dy_j - dot)
@@ -385,10 +385,10 @@ impl ModelContext {
                 // dL/dpred_i = -target_i / pred_i
                 let (inputs, current_and_rest) = self.vars.split_at_mut(idx);
                 let loss_grad = current_and_rest[0].grad.as_ref().unwrap().data[0]; // scalar
-                let pred_val = &inputs[pred as usize].val;
-                let target_val = &inputs[target as usize].val;
+                let pred_val = &inputs[pred].val;
+                let target_val = &inputs[target].val;
 
-                if let Some(ref mut grad_pred) = inputs[pred as usize].grad {
+                if let Some(ref mut grad_pred) = inputs[pred].grad {
                     for i in 0..grad_pred.data.len() {
                         if pred_val.data[i] != 0.0 {
                             grad_pred.data[i] +=
@@ -425,7 +425,7 @@ mod tests {
         let w = b.parameter(784, 10); // 784x10
         let y = b.matmul(x, w); // should be 1x10
 
-        let var = &b.vars[y as usize];
+        let var = &b.vars[y];
         assert_eq!(var.val.rows, 1);
         assert_eq!(var.val.cols, 10);
     }
@@ -437,7 +437,7 @@ mod tests {
         let w = b.parameter(10, 5);
         let y = b.matmul(x, w);
 
-        match b.vars[y as usize].op {
+        match b.vars[y].op {
             Op::MatMul(a, b_id) => {
                 assert_eq!(a, x);
                 assert_eq!(b_id, w);
@@ -452,8 +452,8 @@ mod tests {
         let x = b.input(1, 10);
         let w = b.parameter(10, 5);
 
-        assert!(b.vars[x as usize].grad.is_none());
-        assert!(b.vars[w as usize].grad.is_some());
+        assert!(b.vars[x].grad.is_none());
+        assert!(b.vars[w].grad.is_some());
     }
 
     #[test]
@@ -616,7 +616,7 @@ mod tests {
         m.forward();
 
         // Cross entropy = -sum(target * ln(pred)) = -ln(0.7) ≈ 0.357
-        let loss_val = m.vars[m.loss as usize].val.data[0];
+        let loss_val = m.vars[m.loss].val.data[0];
         let expected = -0.7_f32.ln();
         assert!((loss_val - expected).abs() < 1e-6);
     }
@@ -948,7 +948,7 @@ mod tests {
 
         // Verify forward: L = -ln(0.7)
         let expected_loss = -(0.7_f32.ln());
-        let actual_loss = m.vars[m.loss as usize].val.data[0];
+        let actual_loss = m.vars[m.loss].val.data[0];
         assert!(
             (actual_loss - expected_loss).abs() < 1e-6,
             "loss: expected {}, got {}",
