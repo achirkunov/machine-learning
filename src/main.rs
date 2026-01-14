@@ -40,22 +40,11 @@ fn compute_accuracy(model: &mut model::ModelContext, images: &Matrix, labels: &M
 
         // Get predicted class (argmax of output)
         let output = model.output();
-        let pred = output
-            .data
-            .iter()
-            .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(idx, _)| idx)
-            .unwrap();
+        let pred = Matrix::argmax(output);
+
 
         // Get true class (argmax of label)
-        let truth = label_row
-            .data
-            .iter()
-            .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(idx, _)| idx)
-            .unwrap();
+        let truth = Matrix::argmax(&label_row);
 
         if pred == truth {
             correct += 1;
@@ -102,8 +91,10 @@ fn main() {
     let mut b = ModelBuilder::new();
     let x = b.input(1, 784);
     let w = b.parameter(784, 10);
+    let bias = b.parameter(1,10);
     let logits = b.matmul(x, w);
-    let probs = b.softmax(logits); // Added softmax!
+    let logits_biased = b.add(logits, bias);
+    let probs = b.softmax(logits_biased); // Added softmax!
     let y = b.input(1, 10);
     let loss = b.cross_entropy(probs, y);
 
