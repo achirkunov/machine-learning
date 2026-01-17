@@ -264,9 +264,8 @@ impl Matrix {
         }
     }
 
-    // TODO: compute softmax per row instead of entire matrix
     pub fn softmax(a: &Matrix, out: &mut Matrix) {
-        // o_i = e^a_i / sum(e^a_j)
+        // o_i = e^a_i / sum(e^a_j) per row
         assert!(
             a.rows == out.rows && a.cols == out.cols,
             "a and out dimensions must match: a is {}x{}, out is {}x{}",
@@ -275,12 +274,18 @@ impl Matrix {
             out.rows,
             out.cols
         );
-        let mut sum = 0.0;
-        for i in 0..a.data.len() {
-            out.data[i] = a.data[i].exp();
-            sum += out.data[i];
+        for row in 0..a.rows {
+            let offset = row * a.cols;
+            let mut sum = 0.0;
+            for col in 0..a.cols {
+                let val = a.data[offset + col].exp();
+                out.data[offset + col] = val;
+                sum += val;
+            }
+            for col in 0..a.cols {
+                out.data[offset + col] /= sum;
+            }
         }
-        Matrix::scale(out, 1.0 / sum);
     }
 
     pub fn cross_entropy(p: &Matrix, q: &Matrix, out: &mut Matrix) {
@@ -682,7 +687,6 @@ mod tests {
 
     #[test]
     fn test_softmax() {
-        // Single row for now (TODO: test per-row softmax later)
         let a = Matrix {
             rows: 1,
             cols: 3,
@@ -698,6 +702,41 @@ mod tests {
         // Larger input → larger probability
         assert!(out.data[2] > out.data[1]);
         assert!(out.data[1] > out.data[0]);
+    }
+
+    #[test]
+    fn test_softmax_per_row() {
+        let a = Matrix {
+            rows: 3,
+            cols: 3,
+            data: vec![
+                1.0, 2.0, 3.0, // row 0
+                0.0, 0.0, 0.0, // row 1: uniform
+                5.0, 1.0, 1.0, // row 2: first element dominates
+            ],
+        };
+        let mut out = Matrix::zeros(3, 3);
+        Matrix::softmax(&a, &mut out);
+
+        // Each row should sum to 1.0
+        for row in 0..3 {
+            let offset = row * 3;
+            let row_sum: f32 = out.data[offset..offset + 3].iter().sum();
+            assert!((row_sum - 1.0).abs() < 1e-6, "row {} sums to {}", row, row_sum);
+        }
+
+        // Row 0: larger input → larger probability
+        assert!(out.data[2] > out.data[1]);
+        assert!(out.data[1] > out.data[0]);
+
+        // Row 1: uniform input → uniform output (1/3 each)
+        assert!((out.data[3] - 1.0 / 3.0).abs() < 1e-6);
+        assert!((out.data[4] - 1.0 / 3.0).abs() < 1e-6);
+        assert!((out.data[5] - 1.0 / 3.0).abs() < 1e-6);
+
+        // Row 2: first element dominates
+        assert!(out.data[6] > out.data[7]);
+        assert!(out.data[6] > out.data[8]);
     }
 
     #[test]
