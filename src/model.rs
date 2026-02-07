@@ -27,6 +27,8 @@ enum Op {
     Sub(VarId, VarId),
     MatMul(VarId, VarId),
     CrossEntropy(VarId, VarId),
+    /// Add bias with broadcasting: a (NxM) + bias (1xM) -> out (NxM)
+    AddBias(VarId, VarId),
 }
 
 // Variable
@@ -49,6 +51,9 @@ pub struct ModelContext {
 
     forward_prog: Program,
     cost_prog: Program,
+
+    // Pre-allocated scratch buffers for backward pass (avoid allocations)
+    scratch: Vec<Matrix>,
 }
 
 /// Builder for constructing a computational graph.
@@ -115,6 +120,25 @@ impl ModelBuilder {
         self.binary(a_rows, b_cols, Op::MatMul(a, b))
     }
 
+    /// Add bias with broadcasting: result = a + bias
+    /// a: NxM, bias: 1xM -> result: NxM
+    pub fn add_bias(&mut self, a: VarId, bias: VarId) -> VarId {
+        let rows = self.vars[a].val.rows;
+        let cols = self.vars[a].val.cols;
+        assert!(
+            self.vars[bias].val.rows == 1,
+            "bias must have 1 row, got {}",
+            self.vars[bias].val.rows
+        );
+        assert!(
+            self.vars[bias].val.cols == cols,
+            "bias cols must match a cols: {} vs {}",
+            self.vars[bias].val.cols,
+            cols
+        );
+        self.binary(rows, cols, Op::AddBias(a, bias))
+    }
+
     fn add_var(&mut self, val: Matrix, grad: Option<Matrix>, op: Op) -> VarId {
         let id = self.vars.len();
         self.vars.push(Var { val, grad, op });
@@ -146,6 +170,22 @@ impl ModelBuilder {
         // (works because we build in topological order)
         let all_ids: Vec<VarId> = (0..self.vars.len()).collect();
 
+        // Pre-allocate scratch buffers for MatMul backward pass
+        // Each MatMul needs 2 scratch buffers (for grad_a and grad_b temps)
+        let mut scratch = Vec::new();
+        for var in &self.vars {
+            if let Op::MatMul(a, b) = var.op {
+                let a_rows = self.vars[a].val.rows;
+                let a_cols = self.vars[a].val.cols;
+                let b_rows = self.vars[b].val.rows;
+                let b_cols = self.vars[b].val.cols;
+                // Scratch for grad_a: same shape as a
+                scratch.push(Matrix::zeros(a_rows, a_cols));
+                // Scratch for grad_b: same shape as b
+                scratch.push(Matrix::zeros(b_rows, b_cols));
+            }
+        }
+
         ModelContext {
             vars: self.vars,
             input,
@@ -154,6 +194,7 @@ impl ModelBuilder {
             loss,
             forward_prog: all_ids.clone(),
             cost_prog: all_ids.clone(),
+            scratch,
         }
     }
 }
@@ -254,10 +295,16 @@ impl ModelContext {
                 let (inputs, outputs) = self.vars.split_at_mut(idx);
                 let p = &inputs[pred].val;
                 let t = &inputs[target].val;
-                // Cross entropy output is 1x1 scalar, sum element-wise results
-                let mut temp = Matrix::zeros(p.rows, p.cols);
-                Matrix::cross_entropy(t, p, &mut temp);
-                outputs[0].val.data[0] = temp.sum();
+                // Cross entropy output is 1x1 scalar, sum per-row losses
+                let losses = Matrix::cross_entropy_per_row(t, p);
+                outputs[0].val.data[0] = losses.iter().sum();
+            }
+            Op::AddBias(a, bias) => {
+                let (inputs, outputs) = self.vars.split_at_mut(idx);
+                let a_mat = &inputs[a].val;
+                let bias_mat = &inputs[bias].val;
+                let out = &mut outputs[0].val;
+                Matrix::add_row_broadcast(a_mat, bias_mat, out);
             }
         }
     }
@@ -296,15 +343,27 @@ impl ModelContext {
             .fill(1.0);
 
         // 2. Iterate in reverse topological order
-        // We needed to use .clone(), because Rust cannot tell than compute_grad doesn't modify forward_prog
-        // But then we removed .clone() to avoid allocation memory on every pass
+        // Track scratch buffer index for MatMul operations
+        // Count MatMuls first to start from the right index (we iterate in reverse)
+        let mut matmul_count = 0;
+        for var in &self.vars {
+            if matches!(var.op, Op::MatMul(_, _)) {
+                matmul_count += 1;
+            }
+        }
+        let mut scratch_idx = matmul_count * 2; // Each MatMul uses 2 scratch buffers
+
         for i in (0..self.forward_prog.len()).rev() {
             let id = self.forward_prog[i];
-            self.compute_grad(id);
+            // Decrement scratch_idx before MatMul (since we're going in reverse)
+            if matches!(self.vars[id].op, Op::MatMul(_, _)) {
+                scratch_idx -= 2;
+            }
+            self.compute_grad(id, scratch_idx);
         }
     }
 
-    fn compute_grad(&mut self, id: VarId) {
+    fn compute_grad(&mut self, id: VarId, scratch_idx: usize) {
         let idx = id as usize;
         if self.vars[idx].grad.is_none() {
             return; // Skip nodes without gradients
@@ -346,17 +405,18 @@ impl ModelContext {
             Op::MatMul(a, b) => {
                 let (inputs, current_and_rest) = self.vars.split_at_mut(idx);
                 let current_grad = current_and_rest[0].grad.as_ref().unwrap();
-                let a_mat = &inputs[a].val; // we need the ref?
+                let a_mat = &inputs[a].val;
                 let b_mat = &inputs[b].val;
+                // Use pre-allocated scratch buffers instead of allocating
                 if let Some(ref mut grad_a) = inputs[a].grad {
-                    let mut temp = Matrix::zeros(grad_a.rows, grad_a.cols);
-                    Matrix::mul(current_grad, b_mat, &mut temp, false, true);
-                    Matrix::add_into(&temp, grad_a);
+                    let temp = &mut self.scratch[scratch_idx];
+                    Matrix::mul(current_grad, b_mat, temp, false, true);
+                    Matrix::add_into(temp, grad_a);
                 }
                 if let Some(ref mut grad_b) = inputs[b].grad {
-                    let mut temp = Matrix::zeros(grad_b.rows, grad_b.cols);
-                    Matrix::mul(a_mat, current_grad, &mut temp, true, false);
-                    Matrix::add_into(&temp, grad_b);
+                    let temp = &mut self.scratch[scratch_idx + 1];
+                    Matrix::mul(a_mat, current_grad, temp, true, false);
+                    Matrix::add_into(temp, grad_b);
                 }
             }
             Op::ReLU(x) => {
@@ -374,19 +434,27 @@ impl ModelContext {
                 }
             }
             Op::Softmax(x) => {
-                // y_i = exp(x_i) / Σ exp(x_j)
+                // y_i = exp(x_i) / Σ exp(x_j) (per row)
                 // Jacobian: ∂y_i/∂x_j = y_i(δ_ij - y_j)
-                // Chain rule: dL/dx = y ⊙ (dL/dy - dot) where dot = Σ(dL/dy_i · y_i)
+                // Chain rule: dL/dx = y ⊙ (dL/dy - dot) where dot = Σ(dL/dy_i · y_i) per row
                 let (inputs, current_and_rest) = self.vars.split_at_mut(idx);
                 let current_grad = current_and_rest[0].grad.as_ref().unwrap(); // dL/dy
                 let y = &current_and_rest[0].val; // softmax output
 
                 if let Some(ref mut grad_x) = inputs[x].grad {
-                    let dot = Matrix::dot(current_grad, y); // Σ(dL/dy_i · y_i)
-
-                    // dL/dx_j = y_j · (dL/dy_j - dot)
-                    for j in 0..grad_x.data.len() {
-                        grad_x.data[j] += y.data[j] * (current_grad.data[j] - dot);
+                    let cols = y.cols;
+                    for row in 0..y.rows {
+                        let offset = row * cols;
+                        // Compute dot product for this row
+                        let mut dot = 0.0;
+                        for col in 0..cols {
+                            dot += current_grad.data[offset + col] * y.data[offset + col];
+                        }
+                        // dL/dx_j = y_j · (dL/dy_j - dot)
+                        for col in 0..cols {
+                            let idx = offset + col;
+                            grad_x.data[idx] += y.data[idx] * (current_grad.data[idx] - dot);
+                        }
                     }
                 }
             }
@@ -407,6 +475,23 @@ impl ModelContext {
                     }
                 }
                 // target is labels, typically no gradient needed
+            }
+            Op::AddBias(a, bias) => {
+                // Forward: out[i] = a[i] + bias[0] for each row i
+                // Backward:
+                //   dL/da = dL/dout (gradient passes through unchanged)
+                //   dL/dbias = sum_rows(dL/dout) (gradients from all rows sum up)
+                let (inputs, current_and_rest) = self.vars.split_at_mut(idx);
+                let current_grad = current_and_rest[0].grad.as_ref().unwrap();
+
+                // Gradient for a: same shape, just copy
+                if let Some(ref mut grad_a) = inputs[a].grad {
+                    Matrix::add_into(current_grad, grad_a);
+                }
+                // Gradient for bias: sum across rows
+                if let Some(ref mut grad_bias) = inputs[bias].grad {
+                    Matrix::sum_rows_into(current_grad, grad_bias);
+                }
             }
         }
     }

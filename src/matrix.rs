@@ -318,6 +318,31 @@ impl Matrix {
         }
     }
 
+    /// Compute cross entropy loss per row (per sample in batch)
+    /// Returns Vec<f32> with one loss value per row
+    pub fn cross_entropy_per_row(p: &Matrix, q: &Matrix) -> Vec<f32> {
+        assert!(
+            p.rows == q.rows && p.cols == q.cols,
+            "p and q dimensions must match: p is {}x{}, q is {}x{}",
+            p.rows,
+            p.cols,
+            q.rows,
+            q.cols
+        );
+        let mut result = Vec::with_capacity(p.rows);
+        for row in 0..p.rows {
+            let offset = row * p.cols;
+            let mut sum = 0.0;
+            for col in 0..p.cols {
+                if p.data[offset + col] != 0.0 {
+                    sum += p.data[offset + col] * -q.data[offset + col].ln();
+                }
+            }
+            result.push(sum);
+        }
+        result
+    }
+
     pub fn argmax(m: &Matrix) -> usize {
         let size = m.rows * m.cols;
         let mut max_i = 0;
@@ -327,6 +352,135 @@ impl Matrix {
             }
         }
         return max_i;
+    }
+
+    pub fn argmax_per_row(a: &Matrix) -> Vec<usize> {
+        let mut result = Vec::with_capacity(a.rows);
+        for row in 0..a.rows {
+            let offset = row * a.cols;
+            let mut max_idx = 0;
+            let mut max_val = a.data[offset];
+            for col in 1..a.cols {
+                if a.data[offset + col] > max_val {
+                    max_val = a.data[offset + col];
+                    max_idx = col;
+                }
+            }
+            result.push(max_idx);
+        }
+        result
+    }
+
+    /// Add a 1-row matrix to each row of a multi-row matrix (broadcasting)
+    /// a: NxM, row: 1xM, out: NxM
+    /// out[i] = a[i] + row[0] for each row i
+    pub fn add_row_broadcast(a: &Matrix, row: &Matrix, out: &mut Matrix) {
+        assert!(
+            row.rows == 1,
+            "row must have 1 row, got {}",
+            row.rows
+        );
+        assert!(
+            a.cols == row.cols,
+            "a and row must have same cols: a has {}, row has {}",
+            a.cols,
+            row.cols
+        );
+        assert!(
+            a.rows == out.rows && a.cols == out.cols,
+            "a and out dimensions must match: a is {}x{}, out is {}x{}",
+            a.rows,
+            a.cols,
+            out.rows,
+            out.cols
+        );
+        for i in 0..a.rows {
+            let offset = i * a.cols;
+            for j in 0..a.cols {
+                out.data[offset + j] = a.data[offset + j] + row.data[j];
+            }
+        }
+    }
+
+    /// Sum across rows, producing a 1-row matrix
+    /// a: NxM -> out: 1xM where out[j] = sum(a[i][j] for all i)
+    pub fn sum_rows(a: &Matrix, out: &mut Matrix) {
+        assert!(
+            out.rows == 1 && out.cols == a.cols,
+            "out must be 1x{}, got {}x{}",
+            a.cols,
+            out.rows,
+            out.cols
+        );
+        out.clear();
+        for i in 0..a.rows {
+            let offset = i * a.cols;
+            for j in 0..a.cols {
+                out.data[j] += a.data[offset + j];
+            }
+        }
+    }
+
+    /// Accumulating sum across rows into destination
+    /// a: NxM, dst: 1xM -> dst[j] += sum(a[i][j] for all i)
+    pub fn sum_rows_into(a: &Matrix, dst: &mut Matrix) {
+        assert!(
+            dst.rows == 1 && dst.cols == a.cols,
+            "dst must be 1x{}, got {}x{}",
+            a.cols,
+            dst.rows,
+            dst.cols
+        );
+        for i in 0..a.rows {
+            let offset = i * a.cols;
+            for j in 0..a.cols {
+                dst.data[j] += a.data[offset + j];
+            }
+        }
+    }
+
+    /// Extract contiguous rows from matrix (copies data)
+    /// Returns new matrix with rows [start, end)
+    pub fn slice_rows(&self, start: usize, end: usize) -> Matrix {
+        assert!(
+            start <= end && end <= self.rows,
+            "invalid slice range [{}..{}) for matrix with {} rows",
+            start,
+            end,
+            self.rows
+        );
+        let num_rows = end - start;
+        let start_idx = start * self.cols;
+        let end_idx = end * self.cols;
+        Matrix {
+            rows: num_rows,
+            cols: self.cols,
+            data: self.data[start_idx..end_idx].to_vec(),
+        }
+    }
+
+    /// Copy contiguous rows from src into dst (zero allocation)
+    /// Copies rows [start, end) from src into dst
+    pub fn copy_rows_into(src: &Matrix, start: usize, end: usize, dst: &mut Matrix) {
+        let num_rows = end - start;
+        assert!(
+            start <= end && end <= src.rows,
+            "invalid slice range [{}..{}) for matrix with {} rows",
+            start,
+            end,
+            src.rows
+        );
+        assert!(
+            dst.rows == num_rows && dst.cols == src.cols,
+            "dst dimensions must match: expected {}x{}, got {}x{}",
+            num_rows,
+            src.cols,
+            dst.rows,
+            dst.cols
+        );
+        let start_idx = start * src.cols;
+        let end_idx = end * src.cols;
+        dst.data.copy_from_slice(&src.data[start_idx..end_idx]);
     }
 
     pub fn load(rows: usize, cols: usize, filename: &str) -> Self {
@@ -770,6 +924,46 @@ mod tests {
     }
 
     #[test]
+    fn test_cross_entropy_per_row() {
+        // 3 samples, 4 classes each
+        // One-hot labels: sample 0 -> class 1, sample 1 -> class 3, sample 2 -> class 0
+        let p = Matrix {
+            rows: 3,
+            cols: 4,
+            data: vec![
+                0.0, 1.0, 0.0, 0.0, // row 0: true class 1
+                0.0, 0.0, 0.0, 1.0, // row 1: true class 3
+                1.0, 0.0, 0.0, 0.0, // row 2: true class 0
+            ],
+        };
+        let q = Matrix {
+            rows: 3,
+            cols: 4,
+            data: vec![
+                0.1, 0.7, 0.1, 0.1, // row 0: pred 0.7 for class 1
+                0.2, 0.2, 0.2, 0.4, // row 1: pred 0.4 for class 3
+                0.5, 0.2, 0.2, 0.1, // row 2: pred 0.5 for class 0
+            ],
+        };
+
+        let losses = Matrix::cross_entropy_per_row(&p, &q);
+
+        assert_eq!(losses.len(), 3);
+        // Row 0: -ln(0.7)
+        assert!((losses[0] - (-0.7_f32.ln())).abs() < 1e-6);
+        // Row 1: -ln(0.4)
+        assert!((losses[1] - (-0.4_f32.ln())).abs() < 1e-6);
+        // Row 2: -ln(0.5)
+        assert!((losses[2] - (-0.5_f32.ln())).abs() < 1e-6);
+
+        // Verify sum matches what we'd get from cross_entropy + sum
+        let mut out = Matrix::zeros(3, 4);
+        Matrix::cross_entropy(&p, &q, &mut out);
+        let total: f32 = losses.iter().sum();
+        assert!((total - out.sum()).abs() < 1e-6);
+    }
+
+    #[test]
     fn test_argmax() {
         // Max in the middle
         let a = Matrix {
@@ -802,5 +996,109 @@ mod tests {
             data: vec![1.0, 2.0, 3.0, 4.0, 8.0, 6.0],
         };
         assert_eq!(Matrix::argmax(&d), 4); // index 4 has value 8.0
+    }
+
+    #[test]
+    fn test_argmax_per_row() {
+        let m = Matrix {
+            rows: 3,
+            cols: 4,
+            data: vec![
+                1.0, 5.0, 3.0, 2.0, // row 0: max at col 1
+                9.0, 2.0, 1.0, 0.0, // row 1: max at col 0
+                1.0, 2.0, 7.0, 4.0, // row 2: max at col 2
+            ],
+        };
+        assert_eq!(Matrix::argmax_per_row(&m), vec![1, 0, 2]);
+    }
+
+    #[test]
+    fn test_add_row_broadcast() {
+        // 3x4 matrix + 1x4 row -> 3x4 result
+        let a = Matrix {
+            rows: 3,
+            cols: 4,
+            data: vec![
+                1.0, 2.0, 3.0, 4.0,
+                5.0, 6.0, 7.0, 8.0,
+                9.0, 10.0, 11.0, 12.0,
+            ],
+        };
+        let row = Matrix {
+            rows: 1,
+            cols: 4,
+            data: vec![10.0, 20.0, 30.0, 40.0],
+        };
+        let mut out = Matrix::zeros(3, 4);
+        Matrix::add_row_broadcast(&a, &row, &mut out);
+        assert_eq!(out.data, vec![
+            11.0, 22.0, 33.0, 44.0,
+            15.0, 26.0, 37.0, 48.0,
+            19.0, 30.0, 41.0, 52.0,
+        ]);
+    }
+
+    #[test]
+    fn test_sum_rows() {
+        let a = Matrix {
+            rows: 3,
+            cols: 4,
+            data: vec![
+                1.0, 2.0, 3.0, 4.0,
+                5.0, 6.0, 7.0, 8.0,
+                9.0, 10.0, 11.0, 12.0,
+            ],
+        };
+        let mut out = Matrix::zeros(1, 4);
+        Matrix::sum_rows(&a, &mut out);
+        // col 0: 1+5+9=15, col 1: 2+6+10=18, col 2: 3+7+11=21, col 3: 4+8+12=24
+        assert_eq!(out.data, vec![15.0, 18.0, 21.0, 24.0]);
+    }
+
+    #[test]
+    fn test_sum_rows_into() {
+        let a = Matrix {
+            rows: 2,
+            cols: 3,
+            data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        };
+        let mut dst = Matrix {
+            rows: 1,
+            cols: 3,
+            data: vec![10.0, 20.0, 30.0],
+        };
+        Matrix::sum_rows_into(&a, &mut dst);
+        // col 0: 10+1+4=15, col 1: 20+2+5=27, col 2: 30+3+6=39
+        assert_eq!(dst.data, vec![15.0, 27.0, 39.0]);
+    }
+
+    #[test]
+    fn test_slice_rows() {
+        let m = Matrix {
+            rows: 4,
+            cols: 3,
+            data: vec![
+                1.0, 2.0, 3.0,
+                4.0, 5.0, 6.0,
+                7.0, 8.0, 9.0,
+                10.0, 11.0, 12.0,
+            ],
+        };
+
+        // Slice rows 1-3 (exclusive)
+        let slice = m.slice_rows(1, 3);
+        assert_eq!(slice.rows, 2);
+        assert_eq!(slice.cols, 3);
+        assert_eq!(slice.data, vec![4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+
+        // Slice all rows
+        let all = m.slice_rows(0, 4);
+        assert_eq!(all.rows, 4);
+        assert_eq!(all.data, m.data);
+
+        // Slice single row
+        let single = m.slice_rows(2, 3);
+        assert_eq!(single.rows, 1);
+        assert_eq!(single.data, vec![7.0, 8.0, 9.0]);
     }
 }

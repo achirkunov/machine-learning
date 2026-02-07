@@ -17,41 +17,44 @@ fn draw_mnist_digit(data: &[f32]) {
     print!("\x1b[0m");
 }
 
-/// Compute accuracy: fraction of correct predictions
-fn compute_accuracy(model: &mut model::ModelContext, images: &Matrix, labels: &Matrix) -> f32 {
+/// Compute accuracy: fraction of correct predictions (batched)
+fn compute_accuracy(model: &mut model::ModelContext, images: &Matrix, labels: &Matrix, batch_size: usize) -> f32 {
     let n = images.rows;
+    let num_batches = n / batch_size;
     let mut correct = 0;
+    let mut total = 0;
 
-    let mut input_row = Matrix::zeros(1, 784);
-    let mut label_row = Matrix::zeros(1, 10);
+    // Pre-allocate buffers
+    let mut batch_input = Matrix::zeros(batch_size, 784);
+    let mut batch_labels = Matrix::zeros(batch_size, 10);
 
-    for i in 0..n {
-        // Extract row i
-        for j in 0..784 {
-            input_row.data[j] = images.data[i * 784 + j];
-        }
-        for j in 0..10 {
-            label_row.data[j] = labels.data[i * 10 + j];
-        }
+    for batch_idx in 0..num_batches {
+        let batch_start = batch_idx * batch_size;
+        let batch_end = batch_start + batch_size;
 
-        model.set_input(&input_row);
-        model.set_target(&label_row);
+        Matrix::copy_rows_into(images, batch_start, batch_end, &mut batch_input);
+        Matrix::copy_rows_into(labels, batch_start, batch_end, &mut batch_labels);
+
+        model.set_input(&batch_input);
+        model.set_target(&batch_labels);
         model.forward();
 
-        // Get predicted class (argmax of output)
+        // Get predicted classes (argmax per row)
         let output = model.output();
-        let pred = Matrix::argmax(output);
+        let preds = Matrix::argmax_per_row(output);
 
+        // Get true classes (argmax per row)
+        let truths = Matrix::argmax_per_row(&batch_labels);
 
-        // Get true class (argmax of label)
-        let truth = Matrix::argmax(&label_row);
-
-        if pred == truth {
-            correct += 1;
+        for i in 0..batch_size {
+            if preds[i] == truths[i] {
+                correct += 1;
+            }
         }
+        total += batch_size;
     }
 
-    correct as f32 / n as f32
+    correct as f32 / total as f32
 }
 
 fn main() {
@@ -87,78 +90,76 @@ fn main() {
     }
     println!("\n");
 
-    // Build model: input -> matmul -> softmax -> cross_entropy
-    let mut b = ModelBuilder::new();
-    let x = b.input(1, 784);
-    let w = b.parameter(784, 10);
-    let bias = b.parameter(1,10);
-    let logits = b.matmul(x, w);
-    let logits_biased = b.add(logits, bias);
-    let probs = b.softmax(logits_biased); // Added softmax!
-    let y = b.input(1, 10);
-    let loss = b.cross_entropy(probs, y);
-
-    let mut m = b.build(x, probs, y, loss);
-
     // Training hyperparameters
-    let learning_rate = 0.01;
+    let learning_rate = 0.03;
     let batch_size = 50;
     let epochs = 10;
     let print_every = 10000;
+
+    // Build model: input -> matmul -> add_bias -> softmax -> cross_entropy
+    // Model built with batch_size rows for batched training
+    let mut b = ModelBuilder::new();
+    let x = b.input(batch_size, 784);
+    let w = b.parameter(784, 10);
+    let bias = b.parameter(1, 10);
+    let logits = b.matmul(x, w);
+    let logits_biased = b.add_bias(logits, bias); // Broadcasting bias addition
+    let probs = b.softmax(logits_biased);
+    let y = b.input(batch_size, 10);
+    let loss = b.cross_entropy(probs, y);
+
+    let mut m = b.build(x, probs, y, loss);
 
     println!("Training for {} epochs with lr={}, batch_size={}", epochs, learning_rate, batch_size);
     println!("-------------------------------------------");
 
     let start = Instant::now();
 
-    let mut input_row = Matrix::zeros(1, 784);
-    let mut label_row = Matrix::zeros(1, 10);
+    // Number of complete batches (skip incomplete last batch)
+    let num_batches = train_images.rows / batch_size;
+
+    // Pre-allocate batch buffers (avoid allocation in hot loop)
+    let mut batch_input = Matrix::zeros(batch_size, 784);
+    let mut batch_labels = Matrix::zeros(batch_size, 10);
 
     for epoch in 0..epochs {
         let mut total_loss = 0.0;
+        let mut samples_processed = 0;
 
-        for batch_start in (0..train_images.rows).step_by(batch_size) {
-            let batch_end = (batch_start + batch_size).min(train_images.rows);
+        for batch_idx in 0..num_batches {
+            let batch_start = batch_idx * batch_size;
+            let batch_end = batch_start + batch_size;
 
+            // Copy batch data into pre-allocated buffers (zero allocation)
+            Matrix::copy_rows_into(&train_images, batch_start, batch_end, &mut batch_input);
+            Matrix::copy_rows_into(&train_labels, batch_start, batch_end, &mut batch_labels);
+
+            // Single forward/backward per batch
+            m.set_input(&batch_input);
+            m.set_target(&batch_labels);
             m.zero_grad();
+            m.forward();
+            total_loss += m.loss();
+            m.backward();
 
-            for i in batch_start..batch_end {
-                // Extract row i from training data
-                for j in 0..784 {
-                    input_row.data[j] = train_images.data[i * 784 + j];
-                }
-                for j in 0..10 {
-                    label_row.data[j] = train_labels.data[i * 10 + j];
-                }
-
-                // Forward pass
-                m.set_input(&input_row);
-                m.set_target(&label_row);
-                m.forward();
-
-                total_loss += m.loss();
-
-                // Backward pass (accumulates gradients)
-                m.backward();
-            }
-
-            // SGD update once per batch
+            // SGD update once per batch (scale by batch size)
             m.sgd_step(learning_rate / batch_size as f32);
 
-            if batch_end % print_every == 0 {
-                let avg_loss = total_loss / batch_end as f32;
+            samples_processed = batch_end;
+            if samples_processed % print_every == 0 {
+                let avg_loss = total_loss / samples_processed as f32;
                 println!(
                     "Epoch {} [{}/{}] avg_loss: {:.4}",
                     epoch + 1,
-                    batch_end,
+                    samples_processed,
                     train_images.rows,
                     avg_loss
                 );
             }
         }
 
-        let avg_loss = total_loss / train_images.rows as f32;
-        let test_acc = compute_accuracy(&mut m, &test_images, &test_labels);
+        let avg_loss = total_loss / samples_processed as f32;
+        let test_acc = compute_accuracy(&mut m, &test_images, &test_labels, batch_size);
         println!(
             "Epoch {} complete - avg_loss: {:.4}, test_acc: {:.2}%",
             epoch + 1,
@@ -171,8 +172,8 @@ fn main() {
     let elapsed = start.elapsed();
 
     // Final evaluation
-    let train_acc = compute_accuracy(&mut m, &train_images, &train_labels);
-    let test_acc = compute_accuracy(&mut m, &test_images, &test_labels);
+    let train_acc = compute_accuracy(&mut m, &train_images, &train_labels, batch_size);
+    let test_acc = compute_accuracy(&mut m, &test_images, &test_labels, batch_size);
     println!("\nFinal Results:");
     println!("  Train accuracy: {:.2}%", train_acc * 100.0);
     println!("  Test accuracy:  {:.2}%", test_acc * 100.0);
