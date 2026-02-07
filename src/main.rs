@@ -85,19 +85,25 @@ fn main() {
 
     // Training hyperparameters
     let learning_rate = 0.03;
-    let batch_size = 250;
+    let batch_size = 50;
     let epochs = 10;
     let print_every = 10000;
 
     // Build model: input -> matmul -> add_bias -> softmax -> cross_entropy
-    // Model built with batch_size rows for batched training
+    // 2-layer MLP: input -> hidden(128, ReLU) -> output(10, softmax)
+    let hidden_size = 128;
     let mut b = ModelBuilder::new();
     let x = b.input(batch_size, 784);
-    let w = b.parameter(784, 10);
-    let bias = b.parameter(1, 10);
-    let logits = b.matmul(x, w);
-    let logits_biased = b.add_bias(logits, bias); // Broadcasting bias addition
-    let probs = b.softmax(logits_biased);
+    let w1 = b.parameter(784, hidden_size);
+    let b1 = b.parameter(1, hidden_size);
+    let h = b.matmul(x, w1);
+    let h = b.add_bias(h, b1);
+    let h = b.relu(h);
+    let w2 = b.parameter(hidden_size, 10);
+    let b2 = b.parameter(1, 10);
+    let logits = b.matmul(h, w2);
+    let logits = b.add_bias(logits, b2);
+    let probs = b.softmax(logits);
     let y = b.input(batch_size, 10);
     let loss = b.cross_entropy(probs, y);
 

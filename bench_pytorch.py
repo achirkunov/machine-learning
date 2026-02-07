@@ -3,8 +3,8 @@
 # dependencies = ["torch", "torchvision"]
 # ///
 """PyTorch benchmark: same model as Rust implementation.
-Model: linear(784->10) + bias -> softmax -> cross_entropy
-Hyperparams: lr=0.03, batch_size=250, epochs=10, SGD
+Model: 2-layer MLP (784->128->10) with ReLU
+Hyperparams: lr=0.03, batch_size=50, epochs=10, SGD
 """
 
 import time
@@ -13,12 +13,7 @@ import torch.nn as nn
 from torchvision import datasets, transforms
 
 def main():
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
-    else:
-        device = torch.device("cpu")
+    device = torch.device("cpu")
     print(f"Using device: {device}")
 
     # Load MNIST
@@ -26,19 +21,23 @@ def main():
     train_dataset = datasets.MNIST("./mnist_data", train=True, download=True, transform=transform)
     test_dataset = datasets.MNIST("./mnist_data", train=False, download=True, transform=transform)
 
-    batch_size = 250
+    batch_size = 50
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-    # Single linear layer (784 -> 10), same as Rust matmul + bias
-    model = nn.Linear(784, 10).to(device)
+    # 2-layer MLP: 784 -> 128 (ReLU) -> 10, same as Rust
+    model = nn.Sequential(
+        nn.Linear(784, 128),
+        nn.ReLU(),
+        nn.Linear(128, 10),
+    ).to(device)
 
     # CrossEntropyLoss = log_softmax + nll_loss (matches Rust softmax + cross_entropy)
     # reduction='mean' with lr=0.03 matches Rust's sum loss with lr=0.03/batch_size
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.03)
 
-    print(f"Training for 10 epochs with lr=0.03, batch_size={batch_size}")
+    print(f"Training for 10 epochs with lr=0.03, batch_size={batch_size}, device={device}")
     print("-------------------------------------------")
 
     start = time.time()

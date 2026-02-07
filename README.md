@@ -6,15 +6,15 @@ No external ML dependencies — just raw matrix ops, a computational graph with 
 
 ## Benchmark
 
-Training a linear model (784→10) on MNIST for 10 epochs, batch size 250:
+2-layer MLP (784→128→10, ReLU) on MNIST for 10 epochs, batch size 50:
 
 | Implementation | Time | Test Accuracy |
 |---|---|---|
-| **Rust (this repo)** | **6.89s** | 90.39% |
-| PyTorch CPU | 16.26s | 90.62% |
-| PyTorch MPS (Apple GPU) | 20.47s | 90.68% |
+| **Rust (this repo)** | **21.41s** | 96.65% |
+| PyTorch CPU | 20.65s | 96.19% |
+| PyTorch MPS (Apple GPU) | 39.81s | 96.15% |
 
-~2.4x faster than PyTorch on CPU. The model is small enough that PyTorch's framework overhead (autograd tape, dynamic graph, Python interpreter) dominates. GPU is even slower due to CPU↔GPU transfer latency exceeding the tiny matmul compute.
+On par with PyTorch CPU — PyTorch's optimized BLAS closes the gap on larger matmuls (784×128). GPU is slower due to CPU↔GPU transfer latency with small batch sizes.
 
 Run the PyTorch benchmark: `uv run bench_pytorch.py`
 
