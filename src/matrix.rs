@@ -214,18 +214,20 @@ impl Matrix {
     // Private helpers (no`pub`)
     fn mul_nn(a: &Matrix, b: &Matrix, out: &mut Matrix) {
         for i in 0..out.rows {
-            for j in 0..out.cols {
-                for k in 0..a.cols {
-                    out.data[j + i * out.cols] += a.data[k + i * a.cols] * b.data[j + k * b.cols];
+            for k in 0..a.cols {
+                let a_val = a.data[k + i * a.cols];
+                for j in 0..out.cols {
+                    out.data[j + i * out.cols] += a_val * b.data[j + k * b.cols];
                 }
             }
         }
     }
     fn mul_nt(a: &Matrix, b: &Matrix, out: &mut Matrix) {
         for i in 0..out.rows {
-            for j in 0..out.cols {
-                for k in 0..a.cols {
-                    out.data[j + i * out.cols] += a.data[k + i * a.cols] * b.data[k + j * b.cols];
+            for k in 0..a.cols {
+                let a_val = a.data[k + i * a.cols];
+                for j in 0..out.cols {
+                    out.data[j + i * out.cols] += a_val * b.data[k + j * b.cols];
                 }
             }
         }
@@ -240,10 +242,11 @@ impl Matrix {
         }
     }
     fn mul_tt(a: &Matrix, b: &Matrix, out: &mut Matrix) {
-        for i in 0..out.rows {
-            for j in 0..out.cols {
-                for k in 0..a.rows {
-                    out.data[j + i * out.cols] += a.data[i + k * a.cols] * b.data[k + j * b.cols];
+        for k in 0..a.rows {
+            for i in 0..out.rows {
+                let a_val = a.data[i + k * a.cols];
+                for j in 0..out.cols {
+                    out.data[j + i * out.cols] += a_val * b.data[k + j * b.cols];
                 }
             }
         }

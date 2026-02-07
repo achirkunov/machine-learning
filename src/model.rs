@@ -213,10 +213,18 @@ impl ModelContext {
         Matrix::copy_into(data, &mut self.vars[target_idx].val);
     }
 
-    /// Direct access to input buffer (for zero-copy data loading
-    /// Callers who can write directly straight into buffer
+    /// Direct access to input buffer (for zero-copy data loading)
     pub fn input_buffer_mut(&mut self) -> &mut Matrix {
         &mut self.vars[self.input].val
+    }
+
+    /// Direct access to target buffer (for zero-copy data loading)
+    pub fn target_buffer_mut(&mut self) -> &mut Matrix {
+        &mut self.vars[self.target].val
+    }
+
+    pub fn target_buffer(&self) -> &Matrix {
+        &self.vars[self.target].val
     }
 
     pub fn output(&self) -> &Matrix {

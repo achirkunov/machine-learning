@@ -24,27 +24,20 @@ fn compute_accuracy(model: &mut model::ModelContext, images: &Matrix, labels: &M
     let mut correct = 0;
     let mut total = 0;
 
-    // Pre-allocate buffers
-    let mut batch_input = Matrix::zeros(batch_size, 784);
-    let mut batch_labels = Matrix::zeros(batch_size, 10);
-
     for batch_idx in 0..num_batches {
         let batch_start = batch_idx * batch_size;
         let batch_end = batch_start + batch_size;
 
-        Matrix::copy_rows_into(images, batch_start, batch_end, &mut batch_input);
-        Matrix::copy_rows_into(labels, batch_start, batch_end, &mut batch_labels);
-
-        model.set_input(&batch_input);
-        model.set_target(&batch_labels);
+        Matrix::copy_rows_into(images, batch_start, batch_end, model.input_buffer_mut());
+        Matrix::copy_rows_into(labels, batch_start, batch_end, model.target_buffer_mut());
         model.forward();
 
         // Get predicted classes (argmax per row)
         let output = model.output();
         let preds = Matrix::argmax_per_row(output);
 
-        // Get true classes (argmax per row)
-        let truths = Matrix::argmax_per_row(&batch_labels);
+        // Get true classes (argmax per row of target buffer)
+        let truths = Matrix::argmax_per_row(model.target_buffer());
 
         for i in 0..batch_size {
             if preds[i] == truths[i] {
@@ -92,7 +85,7 @@ fn main() {
 
     // Training hyperparameters
     let learning_rate = 0.03;
-    let batch_size = 50;
+    let batch_size = 250;
     let epochs = 10;
     let print_every = 10000;
 
@@ -118,10 +111,6 @@ fn main() {
     // Number of complete batches (skip incomplete last batch)
     let num_batches = train_images.rows / batch_size;
 
-    // Pre-allocate batch buffers (avoid allocation in hot loop)
-    let mut batch_input = Matrix::zeros(batch_size, 784);
-    let mut batch_labels = Matrix::zeros(batch_size, 10);
-
     for epoch in 0..epochs {
         let mut total_loss = 0.0;
         let mut samples_processed = 0;
@@ -130,13 +119,9 @@ fn main() {
             let batch_start = batch_idx * batch_size;
             let batch_end = batch_start + batch_size;
 
-            // Copy batch data into pre-allocated buffers (zero allocation)
-            Matrix::copy_rows_into(&train_images, batch_start, batch_end, &mut batch_input);
-            Matrix::copy_rows_into(&train_labels, batch_start, batch_end, &mut batch_labels);
-
-            // Single forward/backward per batch
-            m.set_input(&batch_input);
-            m.set_target(&batch_labels);
+            // Copy batch data directly into model buffers (zero-copy, no temp)
+            Matrix::copy_rows_into(&train_images, batch_start, batch_end, m.input_buffer_mut());
+            Matrix::copy_rows_into(&train_labels, batch_start, batch_end, m.target_buffer_mut());
             m.zero_grad();
             m.forward();
             total_loss += m.loss();
